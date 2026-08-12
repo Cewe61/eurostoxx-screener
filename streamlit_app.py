@@ -87,39 +87,34 @@ def read_tables(url):
 @st.cache_data(ttl=86400)
 def load_nasdaq100():
 
-    tables = read_tables(
-        "https://en.wikipedia.org/wiki/Nasdaq-100"
-    )
+    @st.cache_data(ttl=86400)
+def load_nasdaq100():
 
-    for df in tables:
-        df = flatten_columns(df)
+    symbols = [
+        "AAPL","ABNB","ADBE","ADI","ADP","ADSK","AEP","ALNY",
+        "AMAT","AMD","AMGN","AMZN","APP","ARM","ASML","AVGO",
+        "AXON","BKNG","BKR","CCEP","CDNS","CEG","CHTR","CMCSA",
+        "COST","CPRT","CRWD","CSCO","CSGP","CSX","CTAS","CTSH",
+        "DASH","DDOG","DXCM","EA","EXC","FANG","FAST","FER",
+        "FTNT","GEHC","GILD","GOOG","GOOGL","HON","IDXX","INSM",
+        "INTC","INTU","ISRG","KDP","KHC","KLAC","LIN","LRCX",
+        "MAR","MCHP","MDLZ","MELI","META","MNST","MPWR","MRVL",
+        "MSFT","MSTR","MU","NFLX","NVDA","NXPI","ODFL","ORLY",
+        "PANW","PAYX","PCAR","PDD","PEP","PLTR","PYPL","QCOM",
+        "REGN","ROP","ROST","SBUX","SHOP","SNPS","STX","TEAM",
+        "TMUS","TRI","TSLA","TTWO","TXN","VRSK","VRTX","WBD",
+        "WDAY","WDC","WMT","XEL","ZS"
+    ]
 
-        ticker_col = find_column(
-            df,
-            ["Ticker", "Symbol"]
-        )
+    out = pd.DataFrame({
+        "Aktie": symbols,
+        "Symbol": symbols
+    })
 
-        name_col = find_column(
-            df,
-            ["Company", "Name"]
-        )
+    out["Index"] = "Nasdaq-100"
+    out["Markt"] = "USA"
 
-        if ticker_col and name_col and len(df) >= 90:
-
-            out = pd.DataFrame({
-                "Aktie": df[name_col].astype(str),
-                "Symbol": df[ticker_col].astype(str)
-            })
-
-            out["Index"] = "Nasdaq-100"
-            out["Markt"] = "USA"
-
-            return out.drop_duplicates("Symbol")
-
-    raise ValueError(
-        "Nasdaq-100-Komponenten konnten nicht gelesen werden."
-    )
-
+    return out
 
 @st.cache_data(ttl=86400)
 def load_dow():
