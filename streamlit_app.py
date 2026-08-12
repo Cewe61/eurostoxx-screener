@@ -21,6 +21,49 @@ try:
 except Exception:
     API_TOKEN = ""
 
+
+    st.subheader("🔧 EODHD-Diagnose")
+
+if API_TOKEN:
+    st.success("API-Key wird von Streamlit erkannt.")
+else:
+    st.error("API-Key wird NICHT erkannt.")
+
+try:
+    test_url = "https://eodhd.com/api/v1.1/fundamentals/SAP.XETRA"
+    test_response = requests.get(
+        test_url,
+        params={
+            "api_token": API_TOKEN,
+            "fmt": "json"
+        },
+        timeout=30
+    )
+
+    st.write("Fundamentals HTTP-Status:", test_response.status_code)
+    st.code(test_response.text[:500])
+
+except Exception as e:
+    st.error(f"Fundamentals-Fehler: {e}")
+
+try:
+    test_url2 = "https://eodhd.com/api/eod/SAP.XETRA"
+    test_response2 = requests.get(
+        test_url2,
+        params={
+            "api_token": API_TOKEN,
+            "fmt": "json",
+            "period": "d"
+        },
+        timeout=30
+    )
+
+    st.write("Kursdaten HTTP-Status:", test_response2.status_code)
+    st.code(test_response2.text[:500])
+
+except Exception as e:
+    st.error(f"Kursdaten-Fehler: {e}")
+
 # ---------------------------------------------------------
 # TEST-UNIVERSUM
 # Danach erweitern wir auf ca. 600 europäische Aktien.
