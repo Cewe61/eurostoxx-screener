@@ -21,6 +21,47 @@ try:
 except Exception:
     API_TOKEN = ""
 
+try:
+    AV_API_KEY = st.secrets["ALPHAVANTAGE_API_KEY"]
+except Exception:
+    AV_API_KEY = ""
+
+st.subheader("🧪 Alpha-Vantage-Test")
+
+if AV_API_KEY:
+    st.success("Alpha-Vantage-Key wird von Streamlit erkannt.")
+else:
+    st.error("Alpha-Vantage-Key wird NICHT erkannt.")
+
+try:
+    av_response = requests.get(
+        "https://www.alphavantage.co/query",
+        params={
+            "function": "OVERVIEW",
+            "symbol": "SAP.DEX",
+            "apikey": AV_API_KEY
+        },
+        timeout=30
+    )
+
+    st.write("Alpha Vantage HTTP-Status:", av_response.status_code)
+
+    av_data = av_response.json()
+
+    if "Symbol" in av_data:
+        st.success("Fundamentaldaten für SAP wurden gefunden.")
+        st.write("Symbol:", av_data.get("Symbol"))
+        st.write("Name:", av_data.get("Name"))
+        st.write("KGV:", av_data.get("PERatio"))
+        st.write("Eigenkapitalrendite:", av_data.get("ReturnOnEquityTTM"))
+        st.write("Operative Marge:", av_data.get("OperatingMarginTTM"))
+    else:
+        st.warning("Keine regulären Fundamentaldaten erhalten.")
+        st.json(av_data)
+
+except Exception as e:
+    st.error(f"Alpha-Vantage-Fehler: {e}")
+    
 
     st.subheader("🔧 EODHD-Diagnose")
 
