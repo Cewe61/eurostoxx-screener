@@ -1,30 +1,27 @@
 import streamlit as st
 import pandas as pd
 import yfinance as yf
-from datetime import datetime
+import math
 
 # ============================================================
-# GRUNDEINSTELLUNGEN
+# SEITENEINSTELLUNGEN
 # ============================================================
 
 st.set_page_config(
-    page_title="4-Index Aktien-Screener",
+    page_title="Aktien-Screener",
     page_icon="📈",
     layout="wide"
 )
 
 st.title("📈 Aktien-Screener")
 st.caption(
-    "EURO STOXX 50 • TecDAX • Dow Jones • Nasdaq-100"
+    "EURO STOXX 50 • TecDAX • Dow Jones • Nasdaq-100 | "
+    "Qualität • Bewertung • Momentum • Risiko"
 )
 
 # ============================================================
-# AKTIENLISTEN
+# AKTIENUNIVERSUM
 # ============================================================
-
-# ------------------------------------------------------------
-# DOW JONES
-# ------------------------------------------------------------
 
 DOW = {
     "3M": "MMM",
@@ -59,10 +56,6 @@ DOW = {
     "Walmart": "WMT",
 }
 
-# ------------------------------------------------------------
-# NASDAQ-100
-# ------------------------------------------------------------
-
 NASDAQ100 = {
     "Adobe": "ADBE",
     "Advanced Micro Devices": "AMD",
@@ -77,7 +70,6 @@ NASDAQ100 = {
     "Applied Materials": "AMAT",
     "Arm Holdings": "ARM",
     "ASML": "ASML",
-    "AstraZeneca": "AZN",
     "Atlassian": "TEAM",
     "Autodesk": "ADSK",
     "Automatic Data Processing": "ADP",
@@ -86,7 +78,6 @@ NASDAQ100 = {
     "Booking Holdings": "BKNG",
     "Broadcom": "AVGO",
     "Cadence Design Systems": "CDNS",
-    "CDW": "CDW",
     "Charter Communications": "CHTR",
     "Cintas": "CTAS",
     "Cisco": "CSCO",
@@ -126,13 +117,11 @@ NASDAQ100 = {
     "Micron Technology": "MU",
     "Microsoft": "MSFT",
     "Mondelez": "MDLZ",
-    "MongoDB": "MDB",
     "Monster Beverage": "MNST",
     "Netflix": "NFLX",
     "Nvidia": "NVDA",
     "NXP Semiconductors": "NXPI",
     "Old Dominion Freight Line": "ODFL",
-    "ON Semiconductor": "ON",
     "O'Reilly Automotive": "ORLY",
     "Palantir": "PLTR",
     "Palo Alto Networks": "PANW",
@@ -150,7 +139,6 @@ NASDAQ100 = {
     "Take-Two Interactive": "TTWO",
     "Tesla": "TSLA",
     "Texas Instruments": "TXN",
-    "The Trade Desk": "TTD",
     "Verisk Analytics": "VRSK",
     "Vertex Pharmaceuticals": "VRTX",
     "Warner Bros. Discovery": "WBD",
@@ -158,11 +146,6 @@ NASDAQ100 = {
     "Xcel Energy": "XEL",
     "Zscaler": "ZS",
 }
-
-# ------------------------------------------------------------
-# EURO STOXX 50
-# Yahoo-Symbole mit jeweiligem Börsenplatz
-# ------------------------------------------------------------
 
 EUROSTOXX50 = {
     "Adidas": "ADS.DE",
@@ -179,7 +162,7 @@ EUROSTOXX50 = {
     "BNP Paribas": "BNP.PA",
     "Danone": "BN.PA",
     "Deutsche Bank": "DBK.DE",
-    "Deutsche Post / DHL": "DHL.DE",
+    "DHL Group": "DHL.DE",
     "Deutsche Telekom": "DTE.DE",
     "Enel": "ENEL.MI",
     "Eni": "ENI.MI",
@@ -209,10 +192,6 @@ EUROSTOXX50 = {
     "Vinci": "DG.PA",
     "Volkswagen Vz.": "VOW3.DE",
 }
-
-# ------------------------------------------------------------
-# TECDAX
-# ------------------------------------------------------------
 
 TECDAX = {
     "Aixtron": "AIXA.DE",
@@ -251,26 +230,41 @@ INDEX_DATA = {
 }
 
 # ============================================================
-# AUSWAHL
+# HILFSFUNKTIONEN
 # ============================================================
 
-index_name = st.selectbox(
-    "Index auswählen",
-    list(INDEX_DATA.keys())
-)
+def safe_float(value):
+    try:
+        if value is None:
+            return None
+        return float(value)
+    except Exception:
+        return None
 
-stocks = INDEX_DATA[index_name]
 
-st.info(
-    f"{index_name}: {len(stocks)} Aktien in der aktuellen Screener-Liste."
-)
+def pct(value):
+    value = safe_float(value)
+
+    if value is None:
+        return None
+
+    if abs(value) <= 2:
+        return value * 100
+
+    return value
+
+
+def clamp(value):
+    return max(0.0, min(100.0, value))
+
 
 # ============================================================
-# KURSDATEN
+# DATEN VON YAHOO
 # ============================================================
 
 @st.cache_data(ttl=3600, show_spinner=False)
-def get_price_data(symbol):
+def get_stock_data(symbol):
+
     try:
         ticker = yf.Ticker(symbol)
 
@@ -284,56 +278,136 @@ def get_price_data(symbol):
 
         close = hist["Close"].dropna()
 
-        if len(close) < 20:
+        if len(close) < 60:
             return None
+
+        try:
+            info = ticker.info or {}
+        except Exception:
+            info = {}
 
         current = float(close.iloc[-1])
 
-        # Performance
-        perf_1m = None
-        perf_3m = None
-        perf_6m = None
-        perf_12m = None
+        # ----------------------------------------------------
+        # Kursentwicklung
+        # ----------------------------------------------------
+
+        p1m = None
+        p3m = None
+        p6m = None
+        p12m = None
 
         if len(close) >= 22:
-            perf_1m = (current / close.iloc[-22] - 1) * 100
+            p1m = (current / float(close.iloc[-22]) - 1) * 100
 
         if len(close) >= 66:
-            perf_3m = (current / close.iloc[-66] - 1) * 100
+            p3m = (current / float(close.iloc[-66]) - 1) * 100
 
-        if len(close) >= 132:
-            perf_6m = (current / close.iloc[-132] - 1) * 100
+        if len(close) >= 126:
+            p6m = (current / float(close.iloc[-126]) - 1) * 100
 
         if len(close) >= 240:
-            perf_12m = (current / close.iloc[0] - 1) * 100
+            p12m = (current / float(close.iloc[0]) - 1) * 100
 
-        # gleitende Durchschnitte
-        sma50 = None
-        sma200 = None
+        # ----------------------------------------------------
+        # Trend
+        # ----------------------------------------------------
 
-        if len(close) >= 50:
-            sma50 = float(close.tail(50).mean())
+        sma50 = (
+            float(close.tail(50).mean())
+            if len(close) >= 50
+            else None
+        )
 
-        if len(close) >= 200:
-            sma200 = float(close.tail(200).mean())
+        sma200 = (
+            float(close.tail(200).mean())
+            if len(close) >= 200
+            else None
+        )
 
-        # Abstand zum 52-Wochen-Hoch
-        high_52 = float(close.max())
+        distance_200 = (
+            (current / sma200 - 1) * 100
+            if sma200
+            else None
+        )
+
+        high52 = float(close.max())
 
         distance_high = (
-            (current / high_52 - 1) * 100
-            if high_52 else None
+            (current / high52 - 1) * 100
+            if high52
+            else None
+        )
+
+        # ----------------------------------------------------
+        # Risiko
+        # ----------------------------------------------------
+
+        daily_returns = close.pct_change().dropna()
+
+        volatility = (
+            float(daily_returns.std())
+            * math.sqrt(252)
+            * 100
+        )
+
+        running_max = close.cummax()
+
+        drawdown = (
+            close / running_max - 1
+        ) * 100
+
+        max_drawdown = float(drawdown.min())
+
+        # ----------------------------------------------------
+        # Fundamentaldaten
+        # ----------------------------------------------------
+
+        roe = pct(info.get("returnOnEquity"))
+        margin = pct(info.get("operatingMargins"))
+
+        debt_equity = safe_float(
+            info.get("debtToEquity")
+        )
+
+        pe = safe_float(
+            info.get("trailingPE")
+        )
+
+        forward_pe = safe_float(
+            info.get("forwardPE")
+        )
+
+        earnings_growth = pct(
+            info.get("earningsGrowth")
+        )
+
+        revenue_growth = pct(
+            info.get("revenueGrowth")
+        )
+
+        dividend_yield = pct(
+            info.get("dividendYield")
         )
 
         return {
             "Kurs": current,
-            "1M %": perf_1m,
-            "3M %": perf_3m,
-            "6M %": perf_6m,
-            "12M %": perf_12m,
-            "SMA50": sma50,
-            "SMA200": sma200,
-            "Abstand 52W-Hoch %": distance_high,
+            "1M %": p1m,
+            "3M %": p3m,
+            "6M %": p6m,
+            "12M %": p12m,
+            "200T %": distance_200,
+            "52W-Hoch %": distance_high,
+            "Volatilität %": volatility,
+            "Max Drawdown %": max_drawdown,
+            "ROE %": roe,
+            "Operative Marge %": margin,
+            "Debt/Equity": debt_equity,
+            "KGV": pe,
+            "Forward-KGV": forward_pe,
+            "Gewinnwachstum %": earnings_growth,
+            "Umsatzwachstum %": revenue_growth,
+            "Dividendenrendite %": dividend_yield,
         }
 
     except Exception:
@@ -341,79 +415,406 @@ def get_price_data(symbol):
 
 
 # ============================================================
-# MOMENTUM-SCORE
+# QUALITÄTSSCORE
 # ============================================================
 
-def momentum_score(data):
-    if data is None:
+def quality_score(d):
+
+    points = 0
+    maximum = 0
+
+    roe = d.get("ROE %")
+
+    if roe is not None:
+
+        maximum += 35
+
+        if roe >= 20:
+            points += 35
+        elif roe >= 15:
+            points += 30
+        elif roe >= 10:
+            points += 22
+        elif roe >= 5:
+            points += 12
+
+    margin = d.get("Operative Marge %")
+
+    if margin is not None:
+
+        maximum += 30
+
+        if margin >= 20:
+            points += 30
+        elif margin >= 12:
+            points += 24
+        elif margin >= 6:
+            points += 16
+        elif margin >= 3:
+            points += 8
+
+    growth = d.get("Gewinnwachstum %")
+
+    if growth is not None:
+
+        maximum += 20
+
+        if growth >= 20:
+            points += 20
+        elif growth >= 10:
+            points += 16
+        elif growth >= 5:
+            points += 10
+        elif growth >= 0:
+            points += 5
+
+    debt = d.get("Debt/Equity")
+
+    if debt is not None:
+
+        maximum += 15
+
+        if debt <= 50:
+            points += 15
+        elif debt <= 100:
+            points += 11
+        elif debt <= 150:
+            points += 7
+        elif debt <= 250:
+            points += 3
+
+    if maximum == 0:
         return None
 
-    score = 0
+    return clamp(
+        points / maximum * 100
+    )
 
-    # 6-Monats-Momentum
-    p6 = data.get("6M %")
+
+# ============================================================
+# BEWERTUNGSSCORE
+# ============================================================
+
+def valuation_score(d):
+
+    points = 0
+    maximum = 0
+
+    pe = d.get("KGV")
+
+    if pe is not None and pe > 0:
+
+        maximum += 55
+
+        if pe <= 10:
+            points += 55
+        elif pe <= 13:
+            points += 48
+        elif pe <= 16:
+            points += 40
+        elif pe <= 20:
+            points += 31
+        elif pe <= 25:
+            points += 22
+        elif pe <= 35:
+            points += 12
+        elif pe <= 50:
+            points += 5
+
+    forward_pe = d.get("Forward-KGV")
+
+    if forward_pe is not None and forward_pe > 0:
+
+        maximum += 30
+
+        if forward_pe <= 10:
+            points += 30
+        elif forward_pe <= 13:
+            points += 26
+        elif forward_pe <= 16:
+            points += 22
+        elif forward_pe <= 20:
+            points += 17
+        elif forward_pe <= 25:
+            points += 11
+        elif forward_pe <= 35:
+            points += 5
+
+    dividend = d.get("Dividendenrendite %")
+
+    if dividend is not None:
+
+        maximum += 15
+
+        if dividend >= 4:
+            points += 15
+        elif dividend >= 3:
+            points += 12
+        elif dividend >= 2:
+            points += 9
+        elif dividend >= 1:
+            points += 5
+
+    if maximum == 0:
+        return None
+
+    return clamp(
+        points / maximum * 100
+    )
+
+
+# ============================================================
+# MOMENTUMSCORE
+# ============================================================
+
+def momentum_score(d):
+
+    points = 0
+    maximum = 100
+
+    p6 = d.get("6M %")
 
     if p6 is not None:
-        if p6 > 20:
-            score += 3
-        elif p6 > 10:
-            score += 2
-        elif p6 > 0:
-            score += 1
-        elif p6 < -20:
-            score -= 3
-        elif p6 < -10:
-            score -= 2
-        else:
-            score -= 1
 
-    # 12-Monats-Momentum
-    p12 = data.get("12M %")
+        if p6 >= 20:
+            points += 30
+        elif p6 >= 10:
+            points += 25
+        elif p6 >= 5:
+            points += 19
+        elif p6 >= 0:
+            points += 10
+
+    p12 = d.get("12M %")
 
     if p12 is not None:
-        if p12 > 25:
-            score += 3
-        elif p12 > 10:
-            score += 2
-        elif p12 > 0:
-            score += 1
-        elif p12 < -25:
-            score -= 3
-        elif p12 < -10:
-            score -= 2
-        else:
-            score -= 1
 
-    # Trend
-    kurs = data.get("Kurs")
-    sma50 = data.get("SMA50")
-    sma200 = data.get("SMA200")
+        if p12 >= 30:
+            points += 35
+        elif p12 >= 20:
+            points += 30
+        elif p12 >= 10:
+            points += 23
+        elif p12 >= 0:
+            points += 12
 
-    if kurs is not None and sma50 is not None:
-        score += 1 if kurs > sma50 else -1
+    ma = d.get("200T %")
 
-    if kurs is not None and sma200 is not None:
-        score += 2 if kurs > sma200 else -2
+    if ma is not None:
 
-    # Nähe zum Jahreshoch
-    high_dist = data.get("Abstand 52W-Hoch %")
+        if ma >= 15:
+            points += 20
+        elif ma >= 5:
+            points += 17
+        elif ma >= 0:
+            points += 13
+        elif ma >= -5:
+            points += 5
 
-    if high_dist is not None:
-        if high_dist > -5:
-            score += 2
-        elif high_dist > -10:
-            score += 1
-        elif high_dist < -30:
-            score -= 2
-        elif high_dist < -20:
-            score -= 1
+    high = d.get("52W-Hoch %")
 
-    return score
+    if high is not None:
+
+        if high >= -5:
+            points += 15
+        elif high >= -10:
+            points += 12
+        elif high >= -20:
+            points += 7
+        elif high >= -30:
+            points += 3
+
+    return clamp(
+        points / maximum * 100
+    )
 
 
 # ============================================================
-# SCREENING
+# RISIKOSCORE
+# hoher Wert = geringeres Risiko
 # ============================================================
+
+def risk_score(d):
+
+    score = 100
+
+    vol = d.get("Volatilität %")
+
+    if vol is not None:
+
+        if vol > 60:
+            score -= 45
+        elif vol > 45:
+            score -= 35
+        elif vol > 35:
+            score -= 25
+        elif vol > 25:
+            score -= 15
+        elif vol > 20:
+            score -= 7
+
+    dd = d.get("Max Drawdown %")
+
+    if dd is not None:
+
+        if dd < -60:
+            score -= 45
+        elif dd < -45:
+            score -= 35
+        elif dd < -35:
+            score -= 25
+        elif dd < -25:
+            score -= 15
+        elif dd < -15:
+            score -= 7
+
+    return clamp(score)
+
+
+# ============================================================
+# LEVERMANN-ORIENTIERTER TEILSCORE
+# Nicht alle 13 Originalkriterien sind kostenlos verfügbar.
+# ============================================================
+
+def levermann_score(d):
+
+    score = 0
+    available = 0
+
+    roe = d.get("ROE %")
+
+    if roe is not None:
+
+        available += 1
+
+        if roe > 20:
+            score += 1
+        elif roe < 10:
+            score -= 1
+
+    margin = d.get("Operative Marge %")
+
+    if margin is not None:
+
+        available += 1
+
+        if margin > 12:
+            score += 1
+        elif margin < 6:
+            score -= 1
+
+    pe = d.get("KGV")
+
+    if pe is not None and pe > 0:
+
+        available += 1
+
+        if pe < 12:
+            score += 1
+        elif pe > 16:
+            score -= 1
+
+    forward_pe = d.get("Forward-KGV")
+
+    if forward_pe is not None and forward_pe > 0:
+
+        available += 1
+
+        if forward_pe < 12:
+            score += 1
+        elif forward_pe > 16:
+            score -= 1
+
+    p6 = d.get("6M %")
+
+    if p6 is not None:
+
+        available += 1
+
+        if p6 > 5:
+            score += 1
+        elif p6 < -5:
+            score -= 1
+
+    p12 = d.get("12M %")
+
+    if p12 is not None:
+
+        available += 1
+
+        if p12 > 5:
+            score += 1
+        elif p12 < -5:
+            score -= 1
+
+    return score, available
+
+
+# ============================================================
+# GESAMTSCORE
+# Fehlende Teilbereiche werden nicht als Null gewertet.
+# ============================================================
+
+def total_score(
+    quality,
+    valuation,
+    momentum,
+    risk
+):
+
+    components = [
+        (quality, 0.30),
+        (valuation, 0.25),
+        (momentum, 0.25),
+        (risk, 0.20),
+    ]
+
+    available = [
+        (score, weight)
+        for score, weight in components
+        if score is not None
+    ]
+
+    if not available:
+        return None, 0
+
+    weight_sum = sum(
+        weight
+        for _, weight in available
+    )
+
+    total = sum(
+        score * weight
+        for score, weight in available
+    ) / weight_sum
+
+    coverage = weight_sum * 100
+
+    return total, coverage
+
+
+# ============================================================
+# OBERFLÄCHE
+# ============================================================
+
+index_name = st.selectbox(
+    "Index auswählen",
+    list(INDEX_DATA.keys())
+)
+
+stocks = INDEX_DATA[index_name]
+
+st.info(
+    f"**{index_name}: {len(stocks)} Aktien**"
+)
+
+min_coverage = st.slider(
+    "Mindest-Datenabdeckung",
+    min_value=0,
+    max_value=100,
+    value=50,
+    step=10
+)
 
 if st.button(
     f"🔎 {index_name} analysieren",
@@ -428,41 +829,102 @@ if st.button(
 
     total = len(stocks)
 
-    for i, (name, symbol) in enumerate(stocks.items()):
+    for i, (name, symbol) in enumerate(
+        stocks.items()
+    ):
 
         status.write(
             f"Analysiere {i + 1}/{total}: **{name}**"
         )
 
-        data = get_price_data(symbol)
+        data = get_stock_data(symbol)
 
         if data is not None:
 
-            score = momentum_score(data)
+            quality = quality_score(data)
 
-            results.append({
-                "Aktie": name,
-                "Symbol": symbol,
-                "Index": index_name,
-                "Score": score,
-                **data
-            })
+            valuation = valuation_score(data)
 
-        progress.progress((i + 1) / total)
+            momentum = momentum_score(data)
 
-    status.empty()
+            risk = risk_score(data)
+
+            levermann, levermann_n = (
+                levermann_score(data)
+            )
+
+            overall, coverage = total_score(
+                quality,
+                valuation,
+                momentum,
+                risk
+            )
+
+            if (
+                overall is not None
+                and coverage >= min_coverage
+            ):
+
+                if overall >= 75:
+                    ampel = "🟢"
+                elif overall >= 55:
+                    ampel = "🟡"
+                else:
+                    ampel = "🔴"
+
+                results.append({
+                    "Ampel": ampel,
+                    "Aktie": name,
+                    "Symbol": symbol,
+                    "Gesamtscore": overall,
+                    "Qualität": quality,
+                    "Bewertung": valuation,
+                    "Momentum": momentum,
+                    "Risiko": risk,
+                    "Levermann": levermann,
+                    "Lev.-Daten": f"{levermann_n}/13",
+                    "Daten %": coverage,
+                    "KGV": data.get("KGV"),
+                    "Forward-KGV": data.get(
+                        "Forward-KGV"
+                    ),
+                    "ROE %": data.get("ROE %"),
+                    "Marge %": data.get(
+                        "Operative Marge %"
+                    ),
+                    "Gewinnwachstum %": data.get(
+                        "Gewinnwachstum %"
+                    ),
+                    "6M %": data.get("6M %"),
+                    "12M %": data.get("12M %"),
+                    "Volatilität %": data.get(
+                        "Volatilität %"
+                    ),
+                    "Drawdown %": data.get(
+                        "Max Drawdown %"
+                    ),
+                })
+
+        progress.progress(
+            (i + 1) / total
+        )
+
     progress.empty()
+    status.empty()
 
     if not results:
+
         st.error(
-            "Es konnten keine Kursdaten geladen werden."
+            "Keine Aktien mit ausreichender "
+            "Datenabdeckung gefunden."
         )
 
     else:
+
         df = pd.DataFrame(results)
 
         df = df.sort_values(
-            "Score",
+            "Gesamtscore",
             ascending=False
         ).reset_index(drop=True)
 
@@ -472,48 +934,109 @@ if st.button(
             range(1, len(df) + 1)
         )
 
+        numeric_columns = [
+            "Gesamtscore",
+            "Qualität",
+            "Bewertung",
+            "Momentum",
+            "Risiko",
+            "Daten %",
+            "KGV",
+            "Forward-KGV",
+            "ROE %",
+            "Marge %",
+            "Gewinnwachstum %",
+            "6M %",
+            "12M %",
+            "Volatilität %",
+            "Drawdown %",
+        ]
+
+        for column in numeric_columns:
+
+            if column in df.columns:
+
+                df[column] = pd.to_numeric(
+                    df[column],
+                    errors="coerce"
+                ).round(1)
+
         st.subheader(
             f"🏆 Ranking – {index_name}"
         )
 
         st.dataframe(
             df,
-            use_container_width=True,
-            hide_index=True
+            hide_index=True,
+            use_container_width=True
         )
 
         st.subheader("🥇 Top 10")
 
+        top10 = df.head(10)
+
         st.dataframe(
-            df.head(10),
-            use_container_width=True,
-            hide_index=True
+            top10,
+            hide_index=True,
+            use_container_width=True
         )
+
+        st.subheader("⭐ Top 3")
+
+        top3 = df.head(3)
+
+        columns = st.columns(
+            min(3, len(top3))
+        )
+
+        for column, (_, row) in zip(
+            columns,
+            top3.iterrows()
+        ):
+
+            with column:
+
+                st.metric(
+                    row["Aktie"],
+                    f'{row["Gesamtscore"]:.1f}'
+                )
+
+                st.caption(
+                    f'Qualität {row["Qualität"]:.0f} | '
+                    f'Bewertung {row["Bewertung"]:.0f} | '
+                    f'Momentum {row["Momentum"]:.0f} | '
+                    f'Risiko {row["Risiko"]:.0f}'
+                )
+
+                st.caption(
+                    f'Levermann {row["Levermann"]:+.0f} '
+                    f'({row["Lev.-Daten"]})'
+                )
 
         csv = df.to_csv(
             index=False
         ).encode("utf-8-sig")
 
         st.download_button(
-            "⬇️ Ergebnis als CSV herunterladen",
+            "⬇️ Gesamtes Ranking als CSV",
             csv,
             file_name=(
                 index_name
                 .replace(" ", "_")
                 .replace("-", "_")
-                + "_ranking.csv"
+                + "_Screener.csv"
             ),
             mime="text/csv"
         )
 
-# ============================================================
-# INFORMATION
-# ============================================================
 
 st.divider()
 
 st.caption(
-    "Version 1: stabiles Kurs- und Momentum-Screening. "
-    "Im nächsten Schritt werden Qualitäts-, Bewertungs- "
-    "und Levermann-Kriterien ergänzt."
+    "Gesamtscore: Qualität 30 %, Bewertung 25 %, "
+    "Momentum 25 %, Risiko 20 %. "
+    "Der Levermann-Wert ist derzeit ein Teilscore aus "
+    "den tatsächlich verfügbaren Kriterien und nicht "
+    "der vollständige originale 13-Punkte-Screener. "
+    "Keine Anlageberatung."
 )
