@@ -1,9 +1,11 @@
 import streamlit as st
 import pandas as pd
-import requests
-import math
-from io import StringIO
-from datetime import date, timedelta
+import yfinance as yf
+from datetime import datetime
+
+# ============================================================
+# GRUNDEINSTELLUNGEN
+# ============================================================
 
 st.set_page_config(
     page_title="4-Index Aktien-Screener",
@@ -16,87 +18,180 @@ st.caption(
     "EURO STOXX 50 • TecDAX • Dow Jones • Nasdaq-100"
 )
 
-# ---------------------------------------------------------
-# API-Schlüssel
-# ---------------------------------------------------------
+# ============================================================
+# AKTIENLISTEN
+# ============================================================
 
-try:
-    EODHD_KEY = st.secrets["EODHD_API_TOKEN"]
-except Exception:
-    EODHD_KEY = ""
+# ------------------------------------------------------------
+# DOW JONES
+# ------------------------------------------------------------
 
-try:
-    AV_KEY = st.secrets["ALPHAVANTAGE_API_KEY"]
-except Exception:
-    AV_KEY = ""
+DOW = {
+    "3M": "MMM",
+    "American Express": "AXP",
+    "Amgen": "AMGN",
+    "Amazon": "AMZN",
+    "Apple": "AAPL",
+    "Boeing": "BA",
+    "Caterpillar": "CAT",
+    "Chevron": "CVX",
+    "Cisco": "CSCO",
+    "Coca-Cola": "KO",
+    "Disney": "DIS",
+    "Goldman Sachs": "GS",
+    "Home Depot": "HD",
+    "Honeywell": "HON",
+    "IBM": "IBM",
+    "Johnson & Johnson": "JNJ",
+    "JPMorgan Chase": "JPM",
+    "McDonald's": "MCD",
+    "Merck": "MRK",
+    "Microsoft": "MSFT",
+    "Nike": "NKE",
+    "Nvidia": "NVDA",
+    "Procter & Gamble": "PG",
+    "Salesforce": "CRM",
+    "Sherwin-Williams": "SHW",
+    "Travelers": "TRV",
+    "UnitedHealth": "UNH",
+    "Verizon": "VZ",
+    "Visa": "V",
+    "Walmart": "WMT",
+}
 
+# ------------------------------------------------------------
+# NASDAQ-100
+# ------------------------------------------------------------
 
-# ---------------------------------------------------------
-# Hilfsfunktionen
-# ---------------------------------------------------------
+NASDAQ100 = {
+    "Adobe": "ADBE",
+    "Advanced Micro Devices": "AMD",
+    "Airbnb": "ABNB",
+    "Alphabet A": "GOOGL",
+    "Alphabet C": "GOOG",
+    "Amazon": "AMZN",
+    "American Electric Power": "AEP",
+    "Amgen": "AMGN",
+    "Analog Devices": "ADI",
+    "Apple": "AAPL",
+    "Applied Materials": "AMAT",
+    "Arm Holdings": "ARM",
+    "ASML": "ASML",
+    "AstraZeneca": "AZN",
+    "Atlassian": "TEAM",
+    "Autodesk": "ADSK",
+    "Automatic Data Processing": "ADP",
+    "Axon Enterprise": "AXON",
+    "Baker Hughes": "BKR",
+    "Booking Holdings": "BKNG",
+    "Broadcom": "AVGO",
+    "Cadence Design Systems": "CDNS",
+    "CDW": "CDW",
+    "Charter Communications": "CHTR",
+    "Cintas": "CTAS",
+    "Cisco": "CSCO",
+    "Coca-Cola Europacific": "CCEP",
+    "Cognizant": "CTSH",
+    "Comcast": "CMCSA",
+    "Constellation Energy": "CEG",
+    "Copart": "CPRT",
+    "Costco": "COST",
+    "CrowdStrike": "CRWD",
+    "CSX": "CSX",
+    "Datadog": "DDOG",
+    "DexCom": "DXCM",
+    "Diamondback Energy": "FANG",
+    "DoorDash": "DASH",
+    "Electronic Arts": "EA",
+    "Exelon": "EXC",
+    "Fastenal": "FAST",
+    "Fortinet": "FTNT",
+    "GE HealthCare": "GEHC",
+    "Gilead Sciences": "GILD",
+    "Honeywell": "HON",
+    "IDEXX Laboratories": "IDXX",
+    "Intel": "INTC",
+    "Intuit": "INTU",
+    "Intuitive Surgical": "ISRG",
+    "Keurig Dr Pepper": "KDP",
+    "KLA": "KLAC",
+    "Kraft Heinz": "KHC",
+    "Lam Research": "LRCX",
+    "Linde": "LIN",
+    "Marriott": "MAR",
+    "Marvell Technology": "MRVL",
+    "MercadoLibre": "MELI",
+    "Meta Platforms": "META",
+    "Microchip Technology": "MCHP",
+    "Micron Technology": "MU",
+    "Microsoft": "MSFT",
+    "Mondelez": "MDLZ",
+    "MongoDB": "MDB",
+    "Monster Beverage": "MNST",
+    "Netflix": "NFLX",
+    "Nvidia": "NVDA",
+    "NXP Semiconductors": "NXPI",
+    "Old Dominion Freight Line": "ODFL",
+    "ON Semiconductor": "ON",
+    "O'Reilly Automotive": "ORLY",
+    "Palantir": "PLTR",
+    "Palo Alto Networks": "PANW",
+    "Paychex": "PAYX",
+    "PayPal": "PYPL",
+    "PDD Holdings": "PDD",
+    "PepsiCo": "PEP",
+    "Qualcomm": "QCOM",
+    "Regeneron": "REGN",
+    "Roper Technologies": "ROP",
+    "Ross Stores": "ROST",
+    "Starbucks": "SBUX",
+    "Synopsys": "SNPS",
+    "T-Mobile US": "TMUS",
+    "Take-Two Interactive": "TTWO",
+    "Tesla": "TSLA",
+    "Texas Instruments": "TXN",
+    "The Trade Desk": "TTD",
+    "Verisk Analytics": "VRSK",
+    "Vertex Pharmaceuticals": "VRTX",
+    "Warner Bros. Discovery": "WBD",
+    "Workday": "WDAY",
+    "Xcel Energy": "XEL",
+    "Zscaler": "ZS",
+}
 
-def flatten_columns(df):
-    cols = []
-    for c in df.columns:
-        if isinstance(c, tuple):
-            c = " ".join(
-                str(x) for x in c
-                if str(x) != "nan"
-            )
-        cols.append(str(c).strip())
-    df.columns = cols
-    return df
+# ------------------------------------------------------------
+# EURO STOXX 50
+# Yahoo-Symbole mit jeweiligem Börsenplatz
+# ------------------------------------------------------------
 
-
-def find_column(df, possibilities):
-    for wanted in possibilities:
-        for col in df.columns:
-            if wanted.lower() == col.lower():
-                return col
-
-    for wanted in possibilities:
-        for col in df.columns:
-            if wanted.lower() in col.lower():
-                return col
-
-    return None
-
-
-@st.cache_data(ttl=86400)
-def read_tables(url):
-    headers = {
-        "User-Agent": "Mozilla/5.0"
-    }
-
-    r = requests.get(
-        url,
-        headers=headers,
-        timeout=30
-    )
-    r.raise_for_status()
-
-    return pd.read_html(
-        StringIO(r.text)
-    )
-
-
-# ---------------------------------------------------------
-# Index-Zusammensetzungen
-# ---------------------------------------------------------
-
-@st.cache_data(ttl=86400)
-def load_nasdaq100():
-
-    @st.cache_data(ttl=86400)
-def load_nasdaq100():
-
-    symbols = [
-        "AAPL","ABNB","ADBE","ADI","ADP","ADSK","AEP","ALNY",
-        "AMAT","AMD","AMGN","AMZN","APP","ARM","ASML","AVGO",
-        "AXON","BKNG","BKR","CCEP","CDNS","CEG","CHTR","CMCSA",
-        "COST","CPRT","CRWD","CSCO","CSGP","CSX","CTAS","CTSH",
-        "DASH","DDOG","DXCM","EA","EXC","FANG","FAST","FER",
-        "FTNT","GEHC","GILD","GOOG","GOOGL","HON","IDXX","INSM",
+EUROSTOXX50 = {
+    "Adidas": "ADS.DE",
+    "Air Liquide": "AI.PA",
+    "Airbus": "AIR.PA",
+    "Allianz": "ALV.DE",
+    "Anheuser-Busch InBev": "ABI.BR",
+    "ASML": "ASML.AS",
+    "AXA": "CS.PA",
+    "BASF": "BAS.DE",
+    "Bayer": "BAYN.DE",
+    "BBVA": "BBVA.MC",
+    "BMW": "BMW.DE",
+    "BNP Paribas": "BNP.PA",
+    "Danone": "BN.PA",
+    "Deutsche Bank": "DBK.DE",
+    "Deutsche Post / DHL": "DHL.DE",
+    "Deutsche Telekom": "DTE.DE",
+    "Enel": "ENEL.MI",
+    "Eni": "ENI.MI",
+    "EssilorLuxottica": "EL.PA",
+    "Ferrari": "RACE.MI",
+    "Hermès": "RMS.PA",
+    "Iberdrola": "IBE.MC",
+    "Inditex": "ITX.MC",
+    "ING": "INGA.AS",
+    "Intesa Sanpaolo": "ISP.MI",
+    "Kering": "KER.PA",
+           "FTNT","GEHC","GILD","GOOG","GOOGL","HON","IDXX","INSM",
         "INTC","INTU","ISRG","KDP","KHC","KLAC","LIN","LRCX",
         "MAR","MCHP","MDLZ","MELI","META","MNST","MPWR","MRVL",
         "MSFT","MSTR","MU","NFLX","NVDA","NXPI","ODFL","ORLY",
