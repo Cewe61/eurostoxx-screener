@@ -3,10 +3,6 @@ import pandas as pd
 import yfinance as yf
 import math
 
-# ============================================================
-# SEITENEINSTELLUNGEN
-# ============================================================
-
 st.set_page_config(
     page_title="Aktien-Screener",
     page_icon="📈",
@@ -244,13 +240,10 @@ def safe_float(value):
 
 def pct(value):
     value = safe_float(value)
-
     if value is None:
         return None
-
     if abs(value) <= 2:
-        return value * 100
-
+        value *= 100
     return value
 
 
@@ -258,13 +251,22 @@ def clamp(value):
     return max(0.0, min(100.0, value))
 
 
+def bounded(value, low=None, high=None):
+    if value is None:
+        return None
+    if low is not None:
+        value = max(low, value)
+    if high is not None:
+        value = min(high, value)
+    return value
+
+
 # ============================================================
-# DATEN VON YAHOO
+# DATEN
 # ============================================================
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def get_stock_data(symbol):
-
     try:
         ticker = yf.Ticker(symbol)
 
@@ -288,60 +290,32 @@ def get_stock_data(symbol):
 
         current = float(close.iloc[-1])
 
-        # ----------------------------------------------------
-        # Kursentwicklung
-        # ----------------------------------------------------
+        p6m = (
+            (current / float(close.iloc[-126]) - 1) * 100
+            if len(close) >= 126 else None
+        )
 
-        p1m = None
-        p3m = None
-        p6m = None
-        p12m = None
-
-        if len(close) >= 22:
-            p1m = (current / float(close.iloc[-22]) - 1) * 100
-
-        if len(close) >= 66:
-            p3m = (current / float(close.iloc[-66]) - 1) * 100
-
-        if len(close) >= 126:
-            p6m = (current / float(close.iloc[-126]) - 1) * 100
-
-        if len(close) >= 240:
-            p12m = (current / float(close.iloc[0]) - 1) * 100
-
-        # ----------------------------------------------------
-        # Trend
-        # ----------------------------------------------------
-
-        sma50 = (
-            float(close.tail(50).mean())
-            if len(close) >= 50
-            else None
+        p12m = (
+            (current / float(close.iloc[0]) - 1) * 100
+            if len(close) >= 240 else None
         )
 
         sma200 = (
             float(close.tail(200).mean())
-            if len(close) >= 200
-            else None
+            if len(close) >= 200 else None
         )
 
         distance_200 = (
             (current / sma200 - 1) * 100
-            if sma200
-            else None
+            if sma200 else None
         )
 
         high52 = float(close.max())
 
         distance_high = (
             (current / high52 - 1) * 100
-            if high52
-            else None
+            if high52 else None
         )
-
-        # ----------------------------------------------------
-        # Risiko
-        # ----------------------------------------------------
 
         daily_returns = close.pct_change().dropna()
 
@@ -359,41 +333,21 @@ def get_stock_data(symbol):
 
         max_drawdown = float(drawdown.min())
 
-        # ----------------------------------------------------
-        # Fundamentaldaten
-        # ----------------------------------------------------
+        sector = str(info.get("sector") or "")
+        industry = str(info.get("industry") or "")
 
         roe = pct(info.get("returnOnEquity"))
         margin = pct(info.get("operatingMargins"))
-
-        debt_equity = safe_float(
-            info.get("debtToEquity")
-        )
-
-        pe = safe_float(
-            info.get("trailingPE")
-        )
-
-        forward_pe = safe_float(
-            info.get("forwardPE")
-        )
-
-        earnings_growth = pct(
-            info.get("earningsGrowth")
-        )
-
-        revenue_growth = pct(
-            info.get("revenueGrowth")
-        )
-
-        dividend_yield = pct(
-            info.get("dividendYield")
-        )
+        debt_equity = safe_float(info.get("debtToEquity"))
+        pe = safe_float(info.get("trailingPE"))
+        forward_pe = safe_float(info.get("forwardPE"))
+        earnings_growth = pct(info.get("earningsGrowth"))
+        revenue_growth = pct(info.get("revenueGrowth"))
+        dividend_yield = pct(info.get("dividendYield"))
+        price_to_book = safe_float(info.get("priceToBook"))
 
         return {
             "Kurs": current,
-            "1M %": p1m,
-            "3M %": p3m,
             "6M %": p6m,
             "12M %": p12m,
             "200T %": distance_200,
@@ -408,6 +362,9 @@ def get_stock_data(symbol):
             "Gewinnwachstum %": earnings_growth,
             "Umsatzwachstum %": revenue_growth,
             "Dividendenrendite %": dividend_yield,
+            "KBV": price_to_book,
+            "Sektor": sector,
+            "Industrie": industry,
         }
 
     except Exception:
@@ -415,206 +372,249 @@ def get_stock_data(symbol):
 
 
 # ============================================================
-# QUALITÄTSSCORE
+# SEKTORERKENNUNG
+# ============================================================
+
+def sector_type(d):
+    sector = (d.get("Sektor") or "").lower()
+    industry = (d.get("Industrie") or "").lower()
+
+    if (
+        "financial" in sector
+        or "bank" in industry
+        or "credit services" in industry
+    ):
+        if "insurance" in industry:
+            return "Versicherung"
+        return "Bank/Finanz"
+
+    if "insurance" in industry:
+        return "Versicherung"
+
+    return "Standard"
+
+
+# ============================================================
+# QUALITÄT
 # ============================================================
 
 def quality_score(d):
+    typ = sector_type(d)
+
+    roe = bounded(d.get("ROE %"), -100, 100)
+    margin = bounded(d.get("Operative Marge %"), -100, 100)
+    growth = bounded(d.get("Gewinnwachstum %"), -100, 100)
+    revenue_growth = bounded(d.get("Umsatzwachstum %"), -100, 100)
+    debt = bounded(d.get("Debt/Equity"), 0, 1000)
 
     points = 0
     maximum = 0
 
-    roe = d.get("ROE %")
+    if typ in ["Bank/Finanz", "Versicherung"]:
+        if roe is not None:
+            maximum += 45
+            if roe >= 18:
+                points += 45
+            elif roe >= 14:
+                points += 38
+            elif roe >= 10:
+                points += 30
+            elif roe >= 7:
+                points += 18
+            elif roe >= 4:
+                points += 8
 
-    if roe is not None:
+        if growth is not None:
+            maximum += 30
+            if growth >= 15:
+                points += 30
+            elif growth >= 8:
+                points += 24
+            elif growth >= 3:
+                points += 16
+            elif growth >= 0:
+                points += 8
 
-        maximum += 35
+        if revenue_growth is not None:
+            maximum += 25
+            if revenue_growth >= 10:
+                points += 25
+            elif revenue_growth >= 5:
+                points += 19
+            elif revenue_growth >= 0:
+                points += 11
 
-        if roe >= 20:
-            points += 35
-        elif roe >= 15:
-            points += 30
-        elif roe >= 10:
-            points += 22
-        elif roe >= 5:
-            points += 12
+    else:
+        if roe is not None:
+            maximum += 30
+            if roe >= 25:
+                points += 30
+            elif roe >= 18:
+                points += 26
+            elif roe >= 12:
+                points += 20
+            elif roe >= 7:
+                points += 12
 
-    margin = d.get("Operative Marge %")
+        if margin is not None:
+            maximum += 30
+            if margin >= 25:
+                points += 30
+            elif margin >= 15:
+                points += 25
+            elif margin >= 8:
+                points += 18
+            elif margin >= 4:
+                points += 10
 
-    if margin is not None:
+        if growth is not None:
+            maximum += 20
+            if growth >= 20:
+                points += 20
+            elif growth >= 10:
+                points += 16
+            elif growth >= 5:
+                points += 11
+            elif growth >= 0:
+                points += 5
 
-        maximum += 30
-
-        if margin >= 20:
-            points += 30
-        elif margin >= 12:
-            points += 24
-        elif margin >= 6:
-            points += 16
-        elif margin >= 3:
-            points += 8
-
-    growth = d.get("Gewinnwachstum %")
-
-    if growth is not None:
-
-        maximum += 20
-
-        if growth >= 20:
-            points += 20
-        elif growth >= 10:
-            points += 16
-        elif growth >= 5:
-            points += 10
-        elif growth >= 0:
-            points += 5
-
-    debt = d.get("Debt/Equity")
-
-    if debt is not None:
-
-        maximum += 15
-
-        if debt <= 50:
-            points += 15
-        elif debt <= 100:
-            points += 11
-        elif debt <= 150:
-            points += 7
-        elif debt <= 250:
-            points += 3
+        if debt is not None:
+            maximum += 20
+            if debt <= 40:
+                points += 20
+            elif debt <= 80:
+                points += 16
+            elif debt <= 120:
+                points += 11
+            elif debt <= 200:
+                points += 6
 
     if maximum == 0:
         return None
 
-    return clamp(
-        points / maximum * 100
-    )
+    return clamp(points / maximum * 100)
 
 
 # ============================================================
-# BEWERTUNGSSCORE
+# BEWERTUNG
 # ============================================================
 
 def valuation_score(d):
+    typ = sector_type(d)
+
+    pe = bounded(d.get("KGV"), 0, 150)
+    forward_pe = bounded(d.get("Forward-KGV"), 0, 150)
+    dividend = bounded(d.get("Dividendenrendite %"), 0, 20)
+    pb = bounded(d.get("KBV"), 0, 20)
 
     points = 0
     maximum = 0
 
-    pe = d.get("KGV")
-
     if pe is not None and pe > 0:
+        maximum += 40
 
-        maximum += 55
-
-        if pe <= 10:
-            points += 55
-        elif pe <= 13:
-            points += 48
-        elif pe <= 16:
+        if pe <= 8:
             points += 40
-        elif pe <= 20:
-            points += 31
-        elif pe <= 25:
-            points += 22
-        elif pe <= 35:
+        elif pe <= 12:
+            points += 34
+        elif pe <= 16:
+            points += 28
+        elif pe <= 22:
+            points += 20
+        elif pe <= 30:
             points += 12
-        elif pe <= 50:
-            points += 5
-
-    forward_pe = d.get("Forward-KGV")
+        elif pe <= 40:
+            points += 6
 
     if forward_pe is not None and forward_pe > 0:
-
         maximum += 30
 
-        if forward_pe <= 10:
+        if forward_pe <= 8:
             points += 30
-        elif forward_pe <= 13:
+        elif forward_pe <= 12:
             points += 26
         elif forward_pe <= 16:
-            points += 22
-        elif forward_pe <= 20:
-            points += 17
-        elif forward_pe <= 25:
-            points += 11
-        elif forward_pe <= 35:
-            points += 5
-
-    dividend = d.get("Dividendenrendite %")
+            points += 21
+        elif forward_pe <= 22:
+            points += 15
+        elif forward_pe <= 30:
+            points += 8
+        elif forward_pe <= 40:
+            points += 4
 
     if dividend is not None:
-
         maximum += 15
 
-        if dividend >= 4:
+        if dividend >= 5:
             points += 15
         elif dividend >= 3:
             points += 12
         elif dividend >= 2:
-            points += 9
+            points += 8
         elif dividend >= 1:
-            points += 5
+            points += 4
+
+    if typ in ["Bank/Finanz", "Versicherung"] and pb is not None:
+        maximum += 15
+
+        if pb <= 0.8:
+            points += 15
+        elif pb <= 1.2:
+            points += 12
+        elif pb <= 1.8:
+            points += 8
+        elif pb <= 2.5:
+            points += 4
 
     if maximum == 0:
         return None
 
-    return clamp(
-        points / maximum * 100
-    )
+    return clamp(points / maximum * 100)
 
 
 # ============================================================
-# MOMENTUMSCORE
+# MOMENTUM
 # ============================================================
 
 def momentum_score(d):
-
     points = 0
-    maximum = 100
 
     p6 = d.get("6M %")
+    p12 = d.get("12M %")
+    ma = d.get("200T %")
+    high = d.get("52W-Hoch %")
 
     if p6 is not None:
-
         if p6 >= 20:
             points += 30
         elif p6 >= 10:
             points += 25
         elif p6 >= 5:
-            points += 19
+            points += 18
         elif p6 >= 0:
             points += 10
 
-    p12 = d.get("12M %")
-
     if p12 is not None:
-
         if p12 >= 30:
             points += 35
         elif p12 >= 20:
             points += 30
         elif p12 >= 10:
-            points += 23
+            points += 22
         elif p12 >= 0:
             points += 12
 
-    ma = d.get("200T %")
-
     if ma is not None:
-
         if ma >= 15:
             points += 20
         elif ma >= 5:
             points += 17
         elif ma >= 0:
-            points += 13
+            points += 12
         elif ma >= -5:
             points += 5
 
-    high = d.get("52W-Hoch %")
-
     if high is not None:
-
         if high >= -5:
             points += 15
         elif high >= -10:
@@ -624,24 +624,20 @@ def momentum_score(d):
         elif high >= -30:
             points += 3
 
-    return clamp(
-        points / maximum * 100
-    )
+    return clamp(points)
 
 
 # ============================================================
-# RISIKOSCORE
-# hoher Wert = geringeres Risiko
+# RISIKO
 # ============================================================
 
 def risk_score(d):
-
     score = 100
 
     vol = d.get("Volatilität %")
+    dd = d.get("Max Drawdown %")
 
     if vol is not None:
-
         if vol > 60:
             score -= 45
         elif vol > 45:
@@ -653,10 +649,7 @@ def risk_score(d):
         elif vol > 20:
             score -= 7
 
-    dd = d.get("Max Drawdown %")
-
     if dd is not None:
-
         if dd < -60:
             score -= 45
         elif dd < -45:
@@ -672,76 +665,59 @@ def risk_score(d):
 
 
 # ============================================================
-# LEVERMANN-ORIENTIERTER TEILSCORE
-# Nicht alle 13 Originalkriterien sind kostenlos verfügbar.
+# LEVERMANN-TEILSCORE
 # ============================================================
 
 def levermann_score(d):
-
     score = 0
     available = 0
 
     roe = d.get("ROE %")
+    margin = d.get("Operative Marge %")
+    pe = d.get("KGV")
+    forward_pe = d.get("Forward-KGV")
+    p6 = d.get("6M %")
+    p12 = d.get("12M %")
+
+    typ = sector_type(d)
 
     if roe is not None:
-
         available += 1
-
         if roe > 20:
             score += 1
         elif roe < 10:
             score -= 1
 
-    margin = d.get("Operative Marge %")
-
-    if margin is not None:
-
+    if typ == "Standard" and margin is not None:
         available += 1
-
         if margin > 12:
             score += 1
         elif margin < 6:
             score -= 1
 
-    pe = d.get("KGV")
-
     if pe is not None and pe > 0:
-
         available += 1
-
         if pe < 12:
             score += 1
         elif pe > 16:
             score -= 1
 
-    forward_pe = d.get("Forward-KGV")
-
     if forward_pe is not None and forward_pe > 0:
-
         available += 1
-
         if forward_pe < 12:
             score += 1
         elif forward_pe > 16:
             score -= 1
 
-    p6 = d.get("6M %")
-
     if p6 is not None:
-
         available += 1
-
         if p6 > 5:
             score += 1
         elif p6 < -5:
             score -= 1
 
-    p12 = d.get("12M %")
-
     if p12 is not None:
-
         available += 1
-
         if p12 > 5:
             score += 1
         elif p12 < -5:
@@ -752,16 +728,9 @@ def levermann_score(d):
 
 # ============================================================
 # GESAMTSCORE
-# Fehlende Teilbereiche werden nicht als Null gewertet.
 # ============================================================
 
-def total_score(
-    quality,
-    valuation,
-    momentum,
-    risk
-):
-
+def total_score(quality, valuation, momentum, risk):
     components = [
         (quality, 0.30),
         (valuation, 0.25),
@@ -778,19 +747,14 @@ def total_score(
     if not available:
         return None, 0
 
-    weight_sum = sum(
-        weight
-        for _, weight in available
-    )
+    weight_sum = sum(weight for _, weight in available)
 
     total = sum(
         score * weight
         for score, weight in available
     ) / weight_sum
 
-    coverage = weight_sum * 100
-
-    return total, coverage
+    return total, weight_sum * 100
 
 
 # ============================================================
@@ -804,9 +768,7 @@ index_name = st.selectbox(
 
 stocks = INDEX_DATA[index_name]
 
-st.info(
-    f"**{index_name}: {len(stocks)} Aktien**"
-)
+st.info(f"**{index_name}: {len(stocks)} Aktien**")
 
 min_coverage = st.slider(
     "Mindest-Datenabdeckung",
@@ -820,19 +782,13 @@ if st.button(
     f"🔎 {index_name} analysieren",
     type="primary"
 ):
-
     progress = st.progress(0)
-
     status = st.empty()
 
     results = []
-
     total = len(stocks)
 
-    for i, (name, symbol) in enumerate(
-        stocks.items()
-    ):
-
+    for i, (name, symbol) in enumerate(stocks.items()):
         status.write(
             f"Analysiere {i + 1}/{total}: **{name}**"
         )
@@ -840,18 +796,12 @@ if st.button(
         data = get_stock_data(symbol)
 
         if data is not None:
-
             quality = quality_score(data)
-
             valuation = valuation_score(data)
-
             momentum = momentum_score(data)
-
             risk = risk_score(data)
 
-            levermann, levermann_n = (
-                levermann_score(data)
-            )
+            levermann, levermann_n = levermann_score(data)
 
             overall, coverage = total_score(
                 quality,
@@ -864,7 +814,6 @@ if st.button(
                 overall is not None
                 and coverage >= min_coverage
             ):
-
                 if overall >= 75:
                     ampel = "🟢"
                 elif overall >= 55:
@@ -876,6 +825,7 @@ if st.button(
                     "Ampel": ampel,
                     "Aktie": name,
                     "Symbol": symbol,
+                    "Sektor": sector_type(data),
                     "Gesamtscore": overall,
                     "Qualität": quality,
                     "Bewertung": valuation,
@@ -885,42 +835,27 @@ if st.button(
                     "Lev.-Daten": f"{levermann_n}/13",
                     "Daten %": coverage,
                     "KGV": data.get("KGV"),
-                    "Forward-KGV": data.get(
-                        "Forward-KGV"
-                    ),
+                    "Forward-KGV": data.get("Forward-KGV"),
+                    "KBV": data.get("KBV"),
                     "ROE %": data.get("ROE %"),
-                    "Marge %": data.get(
-                        "Operative Marge %"
-                    ),
-                    "Gewinnwachstum %": data.get(
-                        "Gewinnwachstum %"
-                    ),
+                    "Marge %": data.get("Operative Marge %"),
+                    "Gewinnwachstum %": data.get("Gewinnwachstum %"),
                     "6M %": data.get("6M %"),
                     "12M %": data.get("12M %"),
-                    "Volatilität %": data.get(
-                        "Volatilität %"
-                    ),
-                    "Drawdown %": data.get(
-                        "Max Drawdown %"
-                    ),
+                    "Volatilität %": data.get("Volatilität %"),
+                    "Drawdown %": data.get("Max Drawdown %"),
                 })
 
-        progress.progress(
-            (i + 1) / total
-        )
+        progress.progress((i + 1) / total)
 
     progress.empty()
     status.empty()
 
     if not results:
-
         st.error(
-            "Keine Aktien mit ausreichender "
-            "Datenabdeckung gefunden."
+            "Keine Aktien mit ausreichender Datenabdeckung gefunden."
         )
-
     else:
-
         df = pd.DataFrame(results)
 
         df = df.sort_values(
@@ -943,6 +878,7 @@ if st.button(
             "Daten %",
             "KGV",
             "Forward-KGV",
+            "KBV",
             "ROE %",
             "Marge %",
             "Gewinnwachstum %",
@@ -953,9 +889,7 @@ if st.button(
         ]
 
         for column in numeric_columns:
-
             if column in df.columns:
-
                 df[column] = pd.to_numeric(
                     df[column],
                     errors="coerce"
@@ -973,45 +907,11 @@ if st.button(
 
         st.subheader("🥇 Top 10")
 
-        top10 = df.head(10)
-
         st.dataframe(
-            top10,
+            df.head(10),
             hide_index=True,
             use_container_width=True
         )
-
-        st.subheader("⭐ Top 3")
-
-        top3 = df.head(3)
-
-        columns = st.columns(
-            min(3, len(top3))
-        )
-
-        for column, (_, row) in zip(
-            columns,
-            top3.iterrows()
-        ):
-
-            with column:
-
-                st.metric(
-                    row["Aktie"],
-                    f'{row["Gesamtscore"]:.1f}'
-                )
-
-                st.caption(
-                    f'Qualität {row["Qualität"]:.0f} | '
-                    f'Bewertung {row["Bewertung"]:.0f} | '
-                    f'Momentum {row["Momentum"]:.0f} | '
-                    f'Risiko {row["Risiko"]:.0f}'
-                )
-
-                st.caption(
-                    f'Levermann {row["Levermann"]:+.0f} '
-                    f'({row["Lev.-Daten"]})'
-                )
 
         csv = df.to_csv(
             index=False
@@ -1029,14 +929,12 @@ if st.button(
             mime="text/csv"
         )
 
-
 st.divider()
 
 st.caption(
     "Gesamtscore: Qualität 30 %, Bewertung 25 %, "
     "Momentum 25 %, Risiko 20 %. "
-    "Der Levermann-Wert ist derzeit ein Teilscore aus "
-    "den tatsächlich verfügbaren Kriterien und nicht "
-    "der vollständige originale 13-Punkte-Screener. "
+    "Banken und Versicherungen werden sektorspezifisch behandelt. "
+    "Der Levermann-Wert ist ein Teilscore aus den verfügbaren Kriterien. "
     "Keine Anlageberatung."
 )
