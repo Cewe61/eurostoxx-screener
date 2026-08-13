@@ -56,94 +56,108 @@ DOW = {
 }
 
 NASDAQ100 = {
-    "Adobe": "ADBE",
-    "Advanced Micro Devices": "AMD",
-    "Airbnb": "ABNB",
-    "Alphabet A": "GOOGL",
-    "Alphabet C": "GOOG",
-    "Amazon": "AMZN",
-    "American Electric Power": "AEP",
-    "Amgen": "AMGN",
-    "Analog Devices": "ADI",
-    "Apple": "AAPL",
-    "Applied Materials": "AMAT",
-    "Arm Holdings": "ARM",
-    "ASML": "ASML",
-    "Atlassian": "TEAM",
-    "Autodesk": "ADSK",
-    "Automatic Data Processing": "ADP",
-    "Axon Enterprise": "AXON",
-    "Baker Hughes": "BKR",
-    "Booking Holdings": "BKNG",
-    "Broadcom": "AVGO",
-    "Cadence Design Systems": "CDNS",
-    "Charter Communications": "CHTR",
-    "Cintas": "CTAS",
-    "Cisco": "CSCO",
-    "Coca-Cola Europacific": "CCEP",
-    "Cognizant": "CTSH",
-    "Comcast": "CMCSA",
-    "Constellation Energy": "CEG",
-    "Copart": "CPRT",
-    "Costco": "COST",
-    "CrowdStrike": "CRWD",
-    "CSX": "CSX",
-    "Datadog": "DDOG",
-    "DexCom": "DXCM",
-    "Diamondback Energy": "FANG",
-    "DoorDash": "DASH",
-    "Electronic Arts": "EA",
-    "Exelon": "EXC",
-    "Fastenal": "FAST",
-    "Fortinet": "FTNT",
-    "GE HealthCare": "GEHC",
-    "Gilead Sciences": "GILD",
-    "Honeywell": "HON",
-    "IDEXX Laboratories": "IDXX",
-    "Intel": "INTC",
-    "Intuit": "INTU",
-    "Intuitive Surgical": "ISRG",
-    "Keurig Dr Pepper": "KDP",
-    "KLA": "KLAC",
-    "Kraft Heinz": "KHC",
-    "Lam Research": "LRCX",
-    "Linde": "LIN",
-    "Marriott": "MAR",
-    "Marvell Technology": "MRVL",
-    "MercadoLibre": "MELI",
-    "Meta Platforms": "META",
-    "Microchip Technology": "MCHP",
-    "Micron Technology": "MU",
-    "Microsoft": "MSFT",
-    "Mondelez": "MDLZ",
-    "Monster Beverage": "MNST",
-    "Netflix": "NFLX",
-    "Nvidia": "NVDA",
-    "NXP Semiconductors": "NXPI",
-    "Old Dominion Freight Line": "ODFL",
-    "O'Reilly Automotive": "ORLY",
-    "Palantir": "PLTR",
-    "Palo Alto Networks": "PANW",
-    "Paychex": "PAYX",
-    "PayPal": "PYPL",
-    "PDD Holdings": "PDD",
-    "PepsiCo": "PEP",
-    "Qualcomm": "QCOM",
-    "Regeneron": "REGN",
-    "Roper Technologies": "ROP",
-    "Ross Stores": "ROST",
-    "Starbucks": "SBUX",
-    "Synopsys": "SNPS",
-    "T-Mobile US": "TMUS",
-    "Take-Two Interactive": "TTWO",
-    "Tesla": "TSLA",
-    "Texas Instruments": "TXN",
-    "Verisk Analytics": "VRSK",
-    "Vertex Pharmaceuticals": "VRTX",
-    "Warner Bros. Discovery": "WBD",
-    "Workday": "WDAY",
-    "Xcel Energy": "XEL",
-    "Zscaler": "ZS",
+    'Adobe': 'ADBE',
+    'Advanced Micro Devices': 'AMD',
+    'Airbnb': 'ABNB',
+    'Alnylam Pharmaceuticals': 'ALNY',
+    'Alphabet A': 'GOOGL',
+    'Alphabet C': 'GOOG',
+    'Amazon': 'AMZN',
+    'American Electric Power': 'AEP',
+    'Amgen': 'AMGN',
+    'Analog Devices': 'ADI',
+    'Apple': 'AAPL',
+    'Applied Materials': 'AMAT',
+    'AppLovin': 'APP',
+    'Arm Holdings': 'ARM',
+    'ASML': 'ASML',
+    'Astera Labs': 'ALAB',
+    'Autodesk': 'ADSK',
+    'Automatic Data Processing': 'ADP',
+    'Axon Enterprise': 'AXON',
+    'Baker Hughes': 'BKR',
+    'Booking Holdings': 'BKNG',
+    'Broadcom': 'AVGO',
+    'Cadence Design Systems': 'CDNS',
+    'Cintas': 'CTAS',
+    'Cisco': 'CSCO',
+    'Coca-Cola Europacific': 'CCEP',
+    'Comcast': 'CMCSA',
+    'Constellation Energy': 'CEG',
+    'Copart': 'CPRT',
+    'CoreWeave': 'CRWV',
+    'Costco': 'COST',
+    'CrowdStrike': 'CRWD',
+    'CSX': 'CSX',
+    'Datadog': 'DDOG',
+    'DexCom': 'DXCM',
+    'Diamondback Energy': 'FANG',
+    'DoorDash': 'DASH',
+    'Exelon': 'EXC',
+    'Fastenal': 'FAST',
+    'Ferrovial': 'FER',
+    'Fortinet': 'FTNT',
+    'GE HealthCare': 'GEHC',
+    'Gilead Sciences': 'GILD',
+    'Honeywell Aerospace': 'HONA',
+    'Honeywell Technologies': 'HON',
+    'IDEXX Laboratories': 'IDXX',
+    'Intel': 'INTC',
+    'Intuit': 'INTU',
+    'Intuitive Surgical': 'ISRG',
+    'Keurig Dr Pepper': 'KDP',
+    'KLA': 'KLAC',
+    'Kraft Heinz': 'KHC',
+    'Lam Research': 'LRCX',
+    'Linde': 'LIN',
+    'Lumentum': 'LITE',
+    'Marriott': 'MAR',
+    'Marvell Technology': 'MRVL',
+    'MercadoLibre': 'MELI',
+    'Meta Platforms': 'META',
+    'Microchip Technology': 'MCHP',
+    'Micron Technology': 'MU',
+    'Microsoft': 'MSFT',
+    'MicroStrategy': 'MSTR',
+    'Mondelez': 'MDLZ',
+    'Monolithic Power Systems': 'MPWR',
+    'Monster Beverage': 'MNST',
+    'Nebius Group': 'NBIS',
+    'Netflix': 'NFLX',
+    'Nvidia': 'NVDA',
+    'NXP Semiconductors': 'NXPI',
+    "O'Reilly Automotive": 'ORLY',
+    'Old Dominion Freight Line': 'ODFL',
+    'PACCAR': 'PCAR',
+    'Palantir': 'PLTR',
+    'Palo Alto Networks': 'PANW',
+    'Paychex': 'PAYX',
+    'PayPal': 'PYPL',
+    'PDD Holdings': 'PDD',
+    'PepsiCo': 'PEP',
+    'Qualcomm': 'QCOM',
+    'Regeneron': 'REGN',
+    'Rocket Lab': 'RKLB',
+    'Roper Technologies': 'ROP',
+    'Ross Stores': 'ROST',
+    'Sandisk': 'SNDK',
+    'Seagate Technology': 'STX',
+    'Shopify': 'SHOP',
+    'SpaceX': 'SPCX',
+    'Starbucks': 'SBUX',
+    'Synopsys': 'SNPS',
+    'T-Mobile US': 'TMUS',
+    'Take-Two Interactive': 'TTWO',
+    'Teradyne': 'TER',
+    'Tesla': 'TSLA',
+    'Texas Instruments': 'TXN',
+    'Thomson Reuters': 'TRI',
+    'Vertex Pharmaceuticals': 'VRTX',
+    'Walmart': 'WMT',
+    'Warner Bros. Discovery': 'WBD',
+    'Western Digital': 'WDC',
+    'Workday': 'WDAY',
+    'Xcel Energy': 'XEL',
 }
 
 EUROSTOXX50 = {
@@ -200,63 +214,36 @@ EUROSTOXX50 = {
 }
 
 TECDAX = {
-    "Aixtron": "AIXA.DE",
-    "Bechtle": "BC8.DE",
-    "Carl Zeiss Meditec": "AFX.DE",
-    "CompuGroup Medical": "COP.DE",
-    "Deutsche Telekom": "DTE.DE",
-    "Drägerwerk Vz.": "DRW3.DE",
-    "Eckert & Ziegler": "EUZ.DE",
-    "Elmos Semiconductor": "ELG.DE",
-    "Evotec": "EVT.DE",
-    "Freenet": "FNTN.DE",
-    "Hensoldt": "HAG.DE",
-    "Infineon": "IFX.DE",
-    "Jenoptik": "JEN.DE",
-    "Kontron": "KTN.DE",
-    "Nemetschek": "NEM.DE",
-    "Nordex": "NDX1.DE",
-    "PNE": "PNE3.DE",
-    "Qiagen": "QIA.DE",
-    "SAP": "SAP.DE",
-    "Sartorius Vz.": "SRT3.DE",
-    "Siltronic": "WAF.DE",
-    "Siemens Healthineers": "SHL.DE",
-    "TeamViewer": "TMV.DE",
-    "United Internet": "UTDI.DE",
-    "Verbio": "VBK.DE",
-    "1&1": "1U1.DE",
-}
-
-
-# ============================================================
-# SEKTOR-TYP-OVERRIDES
-# Unabhängig von externen Datenquellen, damit Banken und Versicherer
-# auch bei fehlenden Yahoo-Sektordaten korrekt behandelt werden.
-# ============================================================
-
-SECTOR_TYPE_BY_SYMBOL = {
-    # EURO STOXX 50 – Banken
-    "SAN.MC": "Bank/Finanz",
-    "BBVA.MC": "Bank/Finanz",
-    "BNP.PA": "Bank/Finanz",
-    "DBK.DE": "Bank/Finanz",
-    "INGA.AS": "Bank/Finanz",
-    "ISP.MI": "Bank/Finanz",
-    "UCG.MI": "Bank/Finanz",
-    "NDA-FI.HE": "Bank/Finanz",
-
-    # EURO STOXX 50 – Versicherungen
-    "ALV.DE": "Versicherung",
-    "CS.PA": "Versicherung",
-    "MUV2.DE": "Versicherung",
-
-    # Dow Jones / Nasdaq – Finanzwerte
-    "AXP": "Bank/Finanz",
-    "GS": "Bank/Finanz",
-    "JPM": "Bank/Finanz",
-    "V": "Bank/Finanz",
-    "PYPL": "Bank/Finanz",
+    'Aixtron': 'AIXA.DE',
+    'ATOSS Software': 'AOF.DE',
+    'Bechtle': 'BC8.DE',
+    'CANCOM': 'COK.DE',
+    'Carl Zeiss Meditec': 'AFX.DE',
+    'Drägerwerk Vz.': 'DRW3.DE',
+    'Deutsche Telekom': 'DTE.DE',
+    'Eckert & Ziegler': 'EUZ.DE',
+    'Elmos Semiconductor': 'ELG.DE',
+    'Evotec': 'EVT.DE',
+    'Freenet': 'FNTN.DE',
+    'Hensoldt': 'HAG.DE',
+    'Infineon': 'IFX.DE',
+    'IONOS': 'IOS.DE',
+    'Jenoptik': 'JEN.DE',
+    'Kontron': 'KTN.DE',
+    'Nemetschek': 'NEM.DE',
+    'Nordex': 'NDX1.DE',
+    'Ottobock': 'OBCK.DE',
+    'PVA TePla': 'TPE.DE',
+    'Qiagen': 'QIA.DE',
+    'SAP': 'SAP.DE',
+    'Sartorius Vz.': 'SRT3.DE',
+    'Siemens Healthineers': 'SHL.DE',
+    'Siltronic': 'WAF.DE',
+    'SMA Solar': 'S92.DE',
+    'SUSS MicroTec': 'SMHN.DE',
+    'TeamViewer': 'TMV.DE',
+    'United Internet': 'UTDI.DE',
+    'Verbio': 'VBK.DE',
 }
 
 INDEX_DATA = {
@@ -1532,7 +1519,10 @@ index_name = st.selectbox(
 
 stocks = INDEX_DATA[index_name]
 
-st.info(f"**{index_name}: {len(stocks)} Aktien**")
+if index_name == "Nasdaq-100":
+    st.info(f"**{index_name}: {len(stocks)} aktuelle Wertpapiere**")
+else:
+    st.info(f"**{index_name}: {len(stocks)} Aktien**")
 
 st.caption(
     "Datenredundanz: Kursreihen werden zuerst über Yahoo Finance geladen; "
@@ -1548,6 +1538,24 @@ if index_name == "EURO STOXX 50":
         )
     else:
         st.success("✅ EURO-STOXX-50-Universum vollständig: 50 Aktien.")
+
+elif index_name == "TecDAX":
+    if len(stocks) != 30:
+        st.warning(
+            f"⚠️ Das TecDAX-Universum enthält {len(stocks)} statt 30 Aktien."
+        )
+    else:
+        st.success("✅ TecDAX-Universum vollständig: 30 Aktien.")
+
+elif index_name == "Nasdaq-100":
+    if len(stocks) < 100:
+        st.warning(
+            f"⚠️ Das Nasdaq-100-Universum enthält nur {len(stocks)} Wertpapiere."
+        )
+    else:
+        st.success(
+            f"✅ Nasdaq-100-Universum vollständig: {len(stocks)} aktuelle Wertpapiere."
+        )
 
 min_coverage = st.slider(
     "Mindest-Datenabdeckung",
@@ -1965,4 +1973,3 @@ st.caption(
     "Kurzfristige Momentum-Beschleunigung wird über monatlich normierte "
     "Segmente 1M, 2–3M, 4–6M und 7–12M berücksichtigt. "
     "Das Screening ist ein quantitatives Hilfsmittel und keine Anlageberatung."
-)
