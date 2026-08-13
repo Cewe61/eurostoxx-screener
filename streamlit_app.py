@@ -302,6 +302,128 @@ def bounded(value, low=None, high=None):
     return value
 
 
+
+# ============================================================
+# MOMENTUM-HILFSFUNKTIONEN
+# ============================================================
+
+def segment_monthly_return(close, start_pos, end_pos):
+    """
+    Berechnet die Performance eines historischen Zeitsegments und
+    normiert sie auf eine durchschnittliche 21-Handelstage-Monatsrate.
+
+    start_pos / end_pos sind iloc-Positionen relativ zum Serienende,
+    z. B. -63 bis -21 für ungefähr Monate 2–3.
+
+    Dadurch sind unterschiedlich lange Segmente miteinander vergleichbar.
+    """
+    try:
+        n = len(close)
+
+        start_idx = start_pos if start_pos >= 0 else n + start_pos
+        end_idx = end_pos if end_pos >= 0 else n + end_pos
+
+        start_idx = max(0, start_idx)
+        end_idx = min(n - 1, end_idx)
+
+        if start_idx < 0 or end_idx <= start_idx or start_idx >= n:
+            return None
+
+        start_price = float(close.iloc[start_idx])
+        end_price = float(close.iloc[end_idx])
+
+        if start_price <= 0 or end_price <= 0:
+            return None
+
+        trading_days = end_idx - start_idx
+        if trading_days <= 0:
+            return None
+
+        total_factor = end_price / start_price
+
+        monthly_factor = total_factor ** (21.0 / trading_days)
+        return (monthly_factor - 1.0) * 100.0
+
+    except Exception:
+        return None
+
+
+def acceleration_score_from_segments(r1, r23, r46, r712):
+    """
+    Beschleunigungskomponente mit maximal 22 Punkten.
+
+    Verwendet vier NICHT überlappende Zeitfenster:
+    - letzter Monat
+    - Monate 2–3
+    - Monate 4–6
+    - Monate 7–12
+
+    Alle Segmente sind bereits auf eine durchschnittliche Monatsrate
+    normiert.
+
+    Idealfall:
+        1M > 2–3M > 4–6M > 7–12M
+    und der jüngste Monat ist positiv.
+
+    Bewertung über vier Bedingungen:
+    0 Abweichungen -> 22,0 Punkte
+    1 Abweichung   -> 16,5 Punkte (75 %)
+    2 Abweichungen -> 11,0 Punkte (50 %)
+    3 Abweichungen ->  5,5 Punkte (25 %)
+    4 Abweichungen ->  0,0 Punkte
+    """
+    values = [r1, r23, r46, r712]
+
+    # Für die gewünschte 4-Stufen-Bewertung müssen alle vier Segmente
+    # verfügbar sein.
+    if any(v is None for v in values):
+        return None
+
+    conditions = [
+        r1 > r23,
+        r23 > r46,
+        r46 > r712,
+        r1 > 0,
+    ]
+
+    deviations = sum(1 for ok in conditions if not ok)
+
+    factor_by_deviations = {
+        0: 1.00,
+        1: 0.75,
+        2: 0.50,
+        3: 0.25,
+        4: 0.00,
+    }
+
+    return 22.0 * factor_by_deviations[deviations]
+
+
+def acceleration_label(r1, r23, r46, r712):
+    values = [r1, r23, r46, r712]
+
+    if any(v is None for v in values):
+        return "zu wenig Daten"
+
+    conditions = [
+        r1 > r23,
+        r23 > r46,
+        r46 > r712,
+        r1 > 0,
+    ]
+    deviations = sum(1 for ok in conditions if not ok)
+
+    if deviations == 0:
+        return "🚀 ideal beschleunigt"
+    if deviations == 1:
+        return "↗ fast ideal"
+    if deviations == 2:
+        return "↗ teilweise beschleunigt"
+    if deviations == 3:
+        return "↘ überwiegend nicht beschleunigt"
+    return "⛔ keine Beschleunigung"
+
+
 # ============================================================
 # DATEN – REDUNDANTE QUELLEN
 # ============================================================
@@ -862,6 +984,52 @@ def get_stock_data(symbol):
 
         current = float(close.iloc[-1])
 
+        # --------------------------------------------------------
+        # Kurzfristige Momentum-Segmente
+        # Alle Werte werden auf eine durchschnittliche Monatsrate
+        # normiert, damit 1M, 2–3M, 4–6M und 7–12M fair vergleichbar sind.
+        # --------------------------------------------------------
+        r1m = (
+            segment_monthly_return(close, -22, -1)
+            if len(close) >= 22 else None
+        )
+
+        r2_3m = (
+            segment_monthly_return(close, -64, -22)
+            if len(close) >= 64 else None
+        )
+
+        r4_6m = (
+            segment_monthly_return(close, -127, -64)
+            if len(close) >= 127 else None
+        )
+
+        # Für 7–12M verwenden wir bei knapp unter 252 Handelstagen
+        # den frühesten verfügbaren Kurs bis ca. 6 Monate zurück.
+        if len(close) >= 240:
+            start_7_12 = -min(len(close), 252)
+            r7_12m = segment_monthly_return(
+                close,
+                start_7_12,
+                -127
+            )
+        else:
+            r7_12m = None
+
+        acceleration = acceleration_score_from_segments(
+            r1m,
+            r2_3m,
+            r4_6m,
+            r7_12m
+        )
+
+        acceleration_text = acceleration_label(
+            r1m,
+            r2_3m,
+            r4_6m,
+            r7_12m
+        )
+
         p6m = (
             (current / float(close.iloc[-126]) - 1) * 100
             if len(close) >= 126 else None
@@ -910,6 +1078,12 @@ def get_stock_data(symbol):
 
         return {
             "Kurs": current,
+            "1M Monatsrate %": r1m,
+            "2-3M Monatsrate %": r2_3m,
+            "4-6M Monatsrate %": r4_6m,
+            "7-12M Monatsrate %": r7_12m,
+            "Momentum-Beschleunigung": acceleration,
+            "Momentum-Muster": acceleration_text,
             "6M %": p6m,
             "12M %": p12m,
             "200T %": distance_200,
@@ -1148,54 +1322,54 @@ def valuation_score(d):
 # ============================================================
 
 def momentum_score(d):
-    points = 0
+    """
+    Momentum-Teilscore 0–100.
 
-    p6 = d.get("6M %")
-    p12 = d.get("12M %")
+    Rohpunktesystem:
+    - kurzfristige Beschleunigung: maximal 22 Punkte
+    - GD200-Trend:               maximal 13 Punkte
+    ------------------------------------------------
+    - gesamt:                    maximal 35 Punkte
+
+    Der Rohwert wird anschließend auf 0–100 normiert.
+    Im Gesamtscore hat Momentum ein Gewicht von 32 %.
+    """
+    raw_points = 0.0
+    raw_maximum = 0.0
+
+    acceleration = d.get("Momentum-Beschleunigung")
     ma = d.get("200T %")
-    high = d.get("52W-Hoch %")
 
-    if p6 is not None:
-        if p6 >= 20:
-            points += 30
-        elif p6 >= 10:
-            points += 25
-        elif p6 >= 5:
-            points += 18
-        elif p6 >= 0:
-            points += 10
+    # A) Beschleunigung – maximal 22 Punkte
+    if acceleration is not None:
+        raw_points += clamp(acceleration)
+        raw_maximum += 22.0
 
-    if p12 is not None:
-        if p12 >= 30:
-            points += 35
-        elif p12 >= 20:
-            points += 30
-        elif p12 >= 10:
-            points += 22
-        elif p12 >= 0:
-            points += 12
-
+    # B) GD200-Trend – maximal 13 Punkte
     if ma is not None:
-        if ma >= 15:
-            points += 20
+        raw_maximum += 13.0
+
+        if ma >= 20:
+            raw_points += 13.0
+        elif ma >= 15:
+            raw_points += 12.0
+        elif ma >= 10:
+            raw_points += 10.5
         elif ma >= 5:
-            points += 17
+            raw_points += 9.0
         elif ma >= 0:
-            points += 12
+            raw_points += 7.0
         elif ma >= -5:
-            points += 5
+            raw_points += 4.0
+        elif ma >= -10:
+            raw_points += 2.0
+        else:
+            raw_points += 0.0
 
-    if high is not None:
-        if high >= -5:
-            points += 15
-        elif high >= -10:
-            points += 12
-        elif high >= -20:
-            points += 7
-        elif high >= -30:
-            points += 3
+    if raw_maximum == 0:
+        return None
 
-    return clamp(points)
+    return clamp(raw_points / raw_maximum * 100.0)
 
 
 # ============================================================
@@ -1322,10 +1496,10 @@ def levermann_score(d):
 
 def total_score(quality, valuation, momentum, risk):
     components = [
-        (quality, 0.30),
-        (valuation, 0.25),
-        (momentum, 0.25),
-        (risk, 0.20),
+        (quality, 0.27),
+        (valuation, 0.22),
+        (momentum, 0.32),
+        (risk, 0.19),
     ]
 
     available = [
@@ -1379,15 +1553,15 @@ min_coverage = st.slider(
     "Mindest-Datenabdeckung",
     min_value=0,
     max_value=100,
-    value=40,
+    value=50,
     step=5
 )
 
 st.caption(
-    "Empfehlung: zunächst 40–45 %. Ein Teilscore mit nur Momentum und Risiko hat 45 % "
-    "Datenabdeckung und wird ausdrücklich als Teilscore gekennzeichnet. Für einen "
-    "vollständig fundamental + technisch belegten Vergleich sollte die Abdeckung "
-    "möglichst 95–100 % erreichen."
+    "Empfehlung: zunächst 50 %. Momentum (32 %) und Risiko (19 %) ergeben zusammen "
+    "51 % Datenabdeckung. Ein technisch berechneter Teilscore bleibt damit sichtbar. "
+    "Für einen vollständig fundamental + technisch belegten Vergleich sollte die "
+    "Abdeckung möglichst 95–100 % erreichen."
 )
 
 if st.button(
@@ -1457,6 +1631,12 @@ if st.button(
                     "ROE %": data.get("ROE %"),
                     "Marge %": data.get("Operative Marge %"),
                     "Gewinnwachstum %": data.get("Gewinnwachstum %"),
+                    "1M mtl. %": data.get("1M Monatsrate %"),
+                    "2-3M mtl. %": data.get("2-3M Monatsrate %"),
+                    "4-6M mtl. %": data.get("4-6M Monatsrate %"),
+                    "7-12M mtl. %": data.get("7-12M Monatsrate %"),
+                    "Beschl. Punkte /22": data.get("Momentum-Beschleunigung"),
+                    "Momentum-Muster": data.get("Momentum-Muster"),
                     "6M %": data.get("6M %"),
                     "12M %": data.get("12M %"),
                     "Volatilität %": data.get("Volatilität %"),
@@ -1523,6 +1703,11 @@ if st.button(
             "ROE %",
             "Marge %",
             "Gewinnwachstum %",
+            "1M mtl. %",
+            "2-3M mtl. %",
+            "4-6M mtl. %",
+            "7-12M mtl. %",
+            "Beschl. Punkte /22",
             "6M %",
             "12M %",
             "Volatilität %",
@@ -1594,10 +1779,10 @@ st.markdown(
     """
 Der **Gesamtscore** besteht aus vier Teilwerten:
 
-- **30 % Qualität**
-- **25 % Bewertung**
-- **25 % Momentum**
-- **20 % Risiko**
+- **27 % Qualität**
+- **22 % Bewertung**
+- **32 % Momentum**
+- **19 % Risiko**
 
 Fehlen einzelne Teilwerte, werden nur die verfügbaren Teilwerte verwendet
 und auf 100 % der tatsächlich verfügbaren Gewichtung normiert. Die Spalte
@@ -1606,7 +1791,7 @@ tatsächlich mit Daten belegt ist.
 """
 )
 
-with st.expander("⭐ Qualität – 30 % des Gesamtscores"):
+with st.expander("⭐ Qualität – 27 % des Gesamtscores"):
     st.markdown(
         """
 **Standardunternehmen**
@@ -1627,7 +1812,7 @@ auf 100 Punkte normiert.
 """
     )
 
-with st.expander("💶 Bewertung – 25 % des Gesamtscores"):
+with st.expander("💶 Bewertung – 22 % des Gesamtscores"):
     st.markdown(
         """
 - **KGV: bis zu 40 Punkte**
@@ -1643,22 +1828,74 @@ normiert.
 """
     )
 
-with st.expander("🚀 Momentum – 25 % des Gesamtscores"):
+with st.expander("🚀 Momentum – 32 % des Gesamtscores"):
     st.markdown(
         """
-Der Momentumswert hat maximal 100 Punkte:
+Der **Momentum-Teilscore macht 32 % des Gesamtscores** aus.
 
-- **6-Monats-Performance: 30 Punkte**
-- **12-Monats-Performance: 35 Punkte**
-- **Abstand zum 200-Tage-Durchschnitt: 20 Punkte**
-- **Nähe zum 52-Wochen-Hoch: 15 Punkte**
+Intern wird Momentum als **35-Punkte-Modul** berechnet:
 
-Damit werden sowohl mittelfristige Kursstärke als auch der längerfristige
-Trend und die Nähe zu neuen Hochs berücksichtigt.
+- **22 Punkte kurzfristige Beschleunigung**
+- **13 Punkte GD200-Trend**
+
+Anschließend werden die erreichten Rohpunkte auf einen Momentum-Score
+von **0 bis 100** normiert.
+
+### 1. Kurzfristige Beschleunigung – maximal 22 Punkte
+
+Es werden vier vollständig getrennte Zeitabschnitte betrachtet:
+
+1. **letzter Monat**
+2. **Monate 2–3**, also ausdrücklich **ohne Monat 1**
+3. **Monate 4–6**, also ausdrücklich **ohne Monate 1–3**
+4. **Monate 7–12**, also ausdrücklich **ohne Monate 1–6**
+
+Jedes Segment wird auf eine **durchschnittliche Monatsrate** normiert.
+Dadurch sind die unterschiedlich langen Zeitfenster direkt vergleichbar.
+
+Die ideale Beschleunigungsstruktur lautet:
+
+**1M > Ø Monate 2–3 > Ø Monate 4–6 > Ø Monate 7–12**
+
+Beispiel:
+
+- Monate 7–12: **+1 % pro Monat**
+- Monate 4–6: **+2 % pro Monat**
+- Monate 2–3: **+3 % pro Monat**
+- letzter Monat: **+4 %**
+
+→ **volle 22 Punkte**
+
+Bewertung:
+
+- **0 Abweichungen:** 22,0 Punkte = 100 %
+- **1 Abweichung:** 16,5 Punkte = 75 %
+- **2 Abweichungen:** 11,0 Punkte = 50 %
+- **3 Abweichungen:** 5,5 Punkte = 25 %
+- **4 Abweichungen:** 0 Punkte
+
+Als vierte Bedingung wird zusätzlich verlangt, dass der jüngste Monat
+positiv ist. So bekommt eine bloße relative Verbesserung innerhalb eines
+weiterhin fallenden Trends nicht automatisch die volle Punktzahl.
+
+### 2. GD200-Trend – maximal 13 Punkte
+
+Je deutlicher der aktuelle Kurs oberhalb seines 200-Tage-Durchschnitts
+liegt, desto höher ist der GD200-Teilscore. Ein Kurs unterhalb des GD200
+führt entsprechend zu deutlich weniger Punkten.
+
+Die Tabelle zeigt zusätzlich:
+
+- **1M mtl. %**
+- **2–3M mtl. %**
+- **4–6M mtl. %**
+- **7–12M mtl. %**
+- **Beschl. Punkte /22**
+- **Momentum-Muster**
 """
     )
 
-with st.expander("🛡️ Risiko – 20 % des Gesamtscores"):
+with st.expander("🛡️ Risiko – 19 % des Gesamtscores"):
     st.markdown(
         """
 Der Risikoscore startet bei **100 Punkten**. Anschließend gibt es
@@ -1725,5 +1962,7 @@ welche Quelle tatsächlich verwendet wurde.
 st.caption(
     "Banken und Versicherungen werden sektorspezifisch behandelt. "
     "Der Levermann-Wert ist ein Teilscore aus den verfügbaren Kriterien. "
+    "Kurzfristige Momentum-Beschleunigung wird über monatlich normierte "
+    "Segmente 1M, 2–3M, 4–6M und 7–12M berücksichtigt. "
     "Das Screening ist ein quantitatives Hilfsmittel und keine Anlageberatung."
 )
