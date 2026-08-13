@@ -228,6 +228,37 @@ TECDAX = {
     "1&1": "1U1.DE",
 }
 
+
+# ============================================================
+# SEKTOR-TYP-OVERRIDES
+# Unabhängig von externen Datenquellen, damit Banken und Versicherer
+# auch bei fehlenden Yahoo-Sektordaten korrekt behandelt werden.
+# ============================================================
+
+SECTOR_TYPE_BY_SYMBOL = {
+    # EURO STOXX 50 – Banken
+    "SAN.MC": "Bank/Finanz",
+    "BBVA.MC": "Bank/Finanz",
+    "BNP.PA": "Bank/Finanz",
+    "DBK.DE": "Bank/Finanz",
+    "INGA.AS": "Bank/Finanz",
+    "ISP.MI": "Bank/Finanz",
+    "UCG.MI": "Bank/Finanz",
+    "NDA-FI.HE": "Bank/Finanz",
+
+    # EURO STOXX 50 – Versicherungen
+    "ALV.DE": "Versicherung",
+    "CS.PA": "Versicherung",
+    "MUV2.DE": "Versicherung",
+
+    # Dow Jones / Nasdaq – Finanzwerte
+    "AXP": "Bank/Finanz",
+    "GS": "Bank/Finanz",
+    "JPM": "Bank/Finanz",
+    "V": "Bank/Finanz",
+    "PYPL": "Bank/Finanz",
+}
+
 INDEX_DATA = {
     "EURO STOXX 50": EUROSTOXX50,
     "TecDAX": TECDAX,
@@ -465,31 +496,244 @@ def get_redundant_history(symbol):
     return None, "keine"
 
 
+def _statement_row(df, candidates):
+    if df is None or getattr(df, "empty", True):
+        return None
+
+    for name in candidates:
+        if name in df.index:
+            row = pd.to_numeric(df.loc[name], errors="coerce").dropna()
+            if len(row) > 0:
+                # yfinance liefert die jüngsten Perioden normalerweise zuerst.
+                return row
+    return None
+
+
+def _safe_growth(latest, previous):
+    latest = safe_float(latest)
+    previous = safe_float(previous)
+    if latest is None or previous is None or previous == 0:
+        return None
+    return (latest / previous - 1) * 100
+
+
 @st.cache_data(ttl=21600, show_spinner=False)
 def get_yahoo_fundamentals(symbol):
+    """
+    Yahoo-Fundamentaldaten in zwei Stufen:
+    1. ticker.info
+    2. Berechnung aus Income Statement / Balance Sheet / fast_info
+
+    Die zweite Stufe ist wichtig, weil ticker.info bei europäischen Aktien
+    gelegentlich leer oder unvollständig zurückkommt.
+    """
+    result = {}
+    used_info = False
+    used_statements = False
+
     try:
         ticker = yf.Ticker(symbol)
+
+        # ---------- 1. Yahoo info ----------
         try:
             info = ticker.info or {}
         except Exception:
             info = {}
 
-        if not info:
+        if info:
+            used_info = True
+            result.update({
+                "ROE %": pct(info.get("returnOnEquity")),
+                "Operative Marge %": pct(info.get("operatingMargins")),
+                "Debt/Equity": safe_float(info.get("debtToEquity")),
+                "KGV": safe_float(info.get("trailingPE")),
+                "Forward-KGV": safe_float(info.get("forwardPE")),
+                "Gewinnwachstum %": pct(info.get("earningsGrowth")),
+                "Umsatzwachstum %": pct(info.get("revenueGrowth")),
+                "Dividendenrendite %": pct(info.get("dividendYield")),
+                "KBV": safe_float(info.get("priceToBook")),
+                "Sektor": str(info.get("sector") or ""),
+                "Industrie": str(info.get("industry") or ""),
+            })
+
+        # ---------- 2. Yahoo Finanzberichte ----------
+        # Nur laden, wenn zentrale Werte fehlen.
+        important_keys = [
+            "ROE %",
+            "Operative Marge %",
+            "Debt/Equity",
+            "KGV",
+            "Gewinnwachstum %",
+            "Umsatzwachstum %",
+            "KBV",
+        ]
+
+        if any(result.get(k) is None for k in important_keys):
+            try:
+                income = ticker.income_stmt
+            except Exception:
+                income = pd.DataFrame()
+
+            try:
+                balance = ticker.balance_sheet
+            except Exception:
+                balance = pd.DataFrame()
+
+            try:
+                fast = ticker.fast_info
+            except Exception:
+                fast = {}
+
+            revenue_row = _statement_row(
+                income,
+                ["Total Revenue", "Operating Revenue"]
+            )
+            operating_income_row = _statement_row(
+                income,
+                ["Operating Income"]
+            )
+            net_income_row = _statement_row(
+                income,
+                [
+                    "Net Income",
+                    "Net Income Common Stockholders",
+                    "Net Income Including Noncontrolling Interests",
+                ]
+            )
+            equity_row = _statement_row(
+                balance,
+                [
+                    "Stockholders Equity",
+                    "Total Stockholder Equity",
+                    "Common Stock Equity",
+                    "Total Equity Gross Minority Interest",
+                ]
+            )
+            debt_row = _statement_row(
+                balance,
+                [
+                    "Total Debt",
+                    "Total Non Current Liabilities Net Minority Interest",
+                ]
+            )
+
+            revenue_latest = (
+                float(revenue_row.iloc[0])
+                if revenue_row is not None and len(revenue_row) >= 1
+                else None
+            )
+            revenue_prev = (
+                float(revenue_row.iloc[1])
+                if revenue_row is not None and len(revenue_row) >= 2
+                else None
+            )
+
+            op_income_latest = (
+                float(operating_income_row.iloc[0])
+                if operating_income_row is not None and len(operating_income_row) >= 1
+                else None
+            )
+
+            net_income_latest = (
+                float(net_income_row.iloc[0])
+                if net_income_row is not None and len(net_income_row) >= 1
+                else None
+            )
+            net_income_prev = (
+                float(net_income_row.iloc[1])
+                if net_income_row is not None and len(net_income_row) >= 2
+                else None
+            )
+
+            equity_latest = (
+                float(equity_row.iloc[0])
+                if equity_row is not None and len(equity_row) >= 1
+                else None
+            )
+
+            debt_latest = (
+                float(debt_row.iloc[0])
+                if debt_row is not None and len(debt_row) >= 1
+                else None
+            )
+
+            market_cap = None
+            try:
+                market_cap = safe_float(fast.get("market_cap"))
+            except Exception:
+                pass
+
+            calculated = {}
+
+            if (
+                net_income_latest is not None
+                and equity_latest is not None
+                and equity_latest != 0
+            ):
+                calculated["ROE %"] = (
+                    net_income_latest / equity_latest * 100
+                )
+
+            if (
+                op_income_latest is not None
+                and revenue_latest is not None
+                and revenue_latest != 0
+            ):
+                calculated["Operative Marge %"] = (
+                    op_income_latest / revenue_latest * 100
+                )
+
+            if (
+                debt_latest is not None
+                and equity_latest is not None
+                and equity_latest != 0
+            ):
+                calculated["Debt/Equity"] = (
+                    debt_latest / equity_latest * 100
+                )
+
+            calculated["Gewinnwachstum %"] = _safe_growth(
+                net_income_latest,
+                net_income_prev
+            )
+            calculated["Umsatzwachstum %"] = _safe_growth(
+                revenue_latest,
+                revenue_prev
+            )
+
+            if (
+                market_cap is not None
+                and net_income_latest is not None
+                and net_income_latest > 0
+            ):
+                calculated["KGV"] = market_cap / net_income_latest
+
+            if (
+                market_cap is not None
+                and equity_latest is not None
+                and equity_latest > 0
+            ):
+                calculated["KBV"] = market_cap / equity_latest
+
+            for key, value in calculated.items():
+                if result.get(key) is None and value is not None:
+                    result[key] = value
+                    used_statements = True
+
+        if not result:
             return {}
 
-        return {
-            "ROE %": pct(info.get("returnOnEquity")),
-            "Operative Marge %": pct(info.get("operatingMargins")),
-            "Debt/Equity": safe_float(info.get("debtToEquity")),
-            "KGV": safe_float(info.get("trailingPE")),
-            "Forward-KGV": safe_float(info.get("forwardPE")),
-            "Gewinnwachstum %": pct(info.get("earningsGrowth")),
-            "Umsatzwachstum %": pct(info.get("revenueGrowth")),
-            "Dividendenrendite %": pct(info.get("dividendYield")),
-            "KBV": safe_float(info.get("priceToBook")),
-            "Sektor": str(info.get("sector") or ""),
-            "Industrie": str(info.get("industry") or ""),
-        }
+        if used_info and used_statements:
+            result["_Quelle"] = "Yahoo info + Finanzberichte"
+        elif used_statements:
+            result["_Quelle"] = "Yahoo Finanzberichte"
+        elif used_info:
+            result["_Quelle"] = "Yahoo Finance"
+        else:
+            result["_Quelle"] = "keine"
+
+        return result
+
     except Exception:
         return {}
 
@@ -562,10 +806,16 @@ def get_eodhd_fundamentals(symbol):
 
 
 def merge_fundamentals(primary, secondary):
-    merged = dict(primary or {})
+    primary = dict(primary or {})
+    secondary = dict(secondary or {})
+
+    primary_source = primary.pop("_Quelle", "")
+    secondary_source = secondary.pop("_Quelle", "")
+
+    merged = dict(primary)
     used_secondary = False
 
-    for key, value in (secondary or {}).items():
+    for key, value in secondary.items():
         current = merged.get(key)
         missing = (
             current is None
@@ -580,11 +830,14 @@ def merge_fundamentals(primary, secondary):
             used_secondary = True
 
     if primary and used_secondary:
-        source = "Yahoo + EODHD"
+        source = (
+            (primary_source or "Yahoo Finance")
+            + " + EODHD"
+        )
     elif primary:
-        source = "Yahoo Finance"
+        source = primary_source or "Yahoo Finance"
     elif secondary:
-        source = "EODHD"
+        source = secondary_source or "EODHD"
     else:
         source = "keine"
 
@@ -676,6 +929,7 @@ def get_stock_data(symbol):
             "Industrie": fundamentals.get("Industrie", ""),
             "Kursquelle": price_source,
             "Fundamentalquelle": fundamental_source,
+            "Sektor-Typ-Override": SECTOR_TYPE_BY_SYMBOL.get(symbol),
         }
 
     except Exception:
@@ -687,20 +941,26 @@ def get_stock_data(symbol):
 # ============================================================
 
 def sector_type(d):
+    override = d.get("Sektor-Typ-Override")
+    if override:
+        return override
+
     sector = (d.get("Sektor") or "").lower()
     industry = (d.get("Industrie") or "").lower()
 
     if (
+        "insurance" in industry
+        or "insurance" in sector
+    ):
+        return "Versicherung"
+
+    if (
         "financial" in sector
         or "bank" in industry
+        or "banks" in industry
         or "credit services" in industry
     ):
-        if "insurance" in industry:
-            return "Versicherung"
         return "Bank/Finanz"
-
-    if "insurance" in industry:
-        return "Versicherung"
 
     return "Standard"
 
@@ -980,6 +1240,24 @@ def risk_score(d):
 # ============================================================
 
 def levermann_score(d):
+    """
+    Levermann-light: 6 automatisch verfügbare Kriterien.
+    Das ist bewusst NICHT der vollständige klassische 13-Punkte-Levermann-Score.
+
+    Kriterien:
+    1. ROE
+    2. operative Marge (nur Standardunternehmen)
+    3. KGV
+    4. Forward-KGV
+    5. 6-Monats-Performance
+    6. 12-Monats-Performance
+
+    Rückgabe:
+    score      = Summe aus -1 / 0 / +1
+    available  = Zahl der tatsächlich verfügbaren Kriterien
+    possible   = Zahl der grundsätzlich anwendbaren Kriterien
+                 (6 bei Standard, 5 bei Bank/Versicherung)
+    """
     score = 0
     available = 0
 
@@ -991,6 +1269,7 @@ def levermann_score(d):
     p12 = d.get("12M %")
 
     typ = sector_type(d)
+    possible = 6 if typ == "Standard" else 5
 
     if roe is not None:
         available += 1
@@ -1034,7 +1313,7 @@ def levermann_score(d):
         elif p12 < -5:
             score -= 1
 
-    return score, available
+    return score, available, possible
 
 
 # ============================================================
@@ -1101,13 +1380,14 @@ min_coverage = st.slider(
     min_value=0,
     max_value=100,
     value=40,
-    step=10
+    step=5
 )
 
 st.caption(
-    "Empfehlung: 40 %. Wenn Fundamentaldaten einer Quelle vorübergehend fehlen, "
-    "können Momentum (25 %) und Risiko (20 %) zusammen bereits 45 % Abdeckung liefern. "
-    "Bei 50 % würden solche Aktien vollständig ausgeblendet."
+    "Empfehlung: zunächst 40–45 %. Ein Teilscore mit nur Momentum und Risiko hat 45 % "
+    "Datenabdeckung und wird ausdrücklich als Teilscore gekennzeichnet. Für einen "
+    "vollständig fundamental + technisch belegten Vergleich sollte die Abdeckung "
+    "möglichst 95–100 % erreichen."
 )
 
 if st.button(
@@ -1134,7 +1414,7 @@ if st.button(
             momentum = momentum_score(data)
             risk = risk_score(data)
 
-            levermann, levermann_n = levermann_score(data)
+            levermann, levermann_n, levermann_possible = levermann_score(data)
 
             overall, coverage = total_score(
                 quality,
@@ -1160,12 +1440,16 @@ if st.button(
                     "Symbol": symbol,
                     "Sektor": sector_type(data),
                     "Gesamtscore": overall,
+                    "Score-Status": (
+                        "Vollscore" if coverage >= 95
+                        else "Teilscore"
+                    ),
                     "Qualität": quality,
                     "Bewertung": valuation,
                     "Momentum": momentum,
                     "Risiko": risk,
                     "Levermann": levermann,
-                    "Lev.-Daten": f"{levermann_n}/13",
+                    "Lev.-Daten": f"{levermann_n}/{levermann_possible}",
                     "Daten %": coverage,
                     "KGV": data.get("KGV"),
                     "Forward-KGV": data.get("Forward-KGV"),
@@ -1389,6 +1673,31 @@ also **geringeres historisches Kursrisiko**.
 """
     )
 
+
+with st.expander("📊 Levermann-light – automatische Teilbewertung"):
+    st.markdown(
+        """
+Der angezeigte **Levermann-light-Wert ist kein vollständiger klassischer
+13-Kriterien-Levermann-Score**. Die App kann derzeit automatisch maximal
+**6 Kriterien** bewerten:
+
+- ROE
+- operative Marge (bei Standardunternehmen)
+- KGV
+- Forward-KGV
+- 6-Monats-Performance
+- 12-Monats-Performance
+
+Jedes verfügbare Kriterium erhält **−1, 0 oder +1**. Die Spalte
+**Lev.-Daten** zeigt die tatsächlich vorhandenen Daten, z. B. **4/6**.
+Bei Banken und Versicherungen entfällt die operative Marge als Kriterium;
+dort lautet der maximale Nenner deshalb **5**.
+
+Ein Wert wie **2 bei 2/6** bedeutet nicht dasselbe wie **2 bei 6/6**.
+Deshalb sollte immer auch die Datenabdeckung betrachtet werden.
+"""
+    )
+
 with st.expander("🗄️ Datenquellen und Redundanz"):
     st.markdown(
         """
@@ -1403,9 +1712,10 @@ Historie liefert. Das schont insbesondere das kostenlose EODHD-Kontingent.
 
 **Fundamentaldaten**
 
-1. Yahoo Finance als Primärquelle
-2. EODHD als Ergänzung für fehlende Werte, sofern der verwendete
-   EODHD-Tarif Fundamentals freigeschaltet hat
+1. Yahoo `ticker.info`
+2. Yahoo-Finanzberichte als Berechnungs-Fallback
+3. EODHD als unabhängige Ergänzung für noch fehlende Werte, sofern der
+   verwendete EODHD-Tarif Fundamentals freigeschaltet hat
 
 Die Ergebnistabelle zeigt mit **Kursquelle** und **Fundamentalquelle**,
 welche Quelle tatsächlich verwendet wurde.
