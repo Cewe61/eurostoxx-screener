@@ -147,49 +147,56 @@ NASDAQ100 = {
 }
 
 EUROSTOXX50 = {
-    "Adidas": "ADS.DE",
-    "Air Liquide": "AI.PA",
-    "Airbus": "AIR.PA",
-    "Allianz": "ALV.DE",
-    "Anheuser-Busch InBev": "ABI.BR",
-    "ASML": "ASML.AS",
-    "AXA": "CS.PA",
-    "BASF": "BAS.DE",
-    "Bayer": "BAYN.DE",
-    "BBVA": "BBVA.MC",
-    "BMW": "BMW.DE",
-    "BNP Paribas": "BNP.PA",
-    "Danone": "BN.PA",
-    "Deutsche Bank": "DBK.DE",
-    "DHL Group": "DHL.DE",
-    "Deutsche Telekom": "DTE.DE",
-    "Enel": "ENEL.MI",
-    "Eni": "ENI.MI",
-    "EssilorLuxottica": "EL.PA",
-    "Ferrari": "RACE.MI",
-    "Hermès": "RMS.PA",
-    "Iberdrola": "IBE.MC",
-    "Inditex": "ITX.MC",
-    "ING": "INGA.AS",
-    "Intesa Sanpaolo": "ISP.MI",
-    "Kering": "KER.PA",
-    "L'Oréal": "OR.PA",
-    "LVMH": "MC.PA",
-    "Mercedes-Benz": "MBG.DE",
-    "Münchener Rück": "MUV2.DE",
-    "Nokia": "NOKIA.HE",
-    "Prosus": "PRX.AS",
-    "Safran": "SAF.PA",
-    "Sanofi": "SAN.PA",
-    "Santander": "SAN.MC",
-    "SAP": "SAP.DE",
-    "Schneider Electric": "SU.PA",
-    "Siemens": "SIE.DE",
-    "Stellantis": "STLAM.MI",
-    "TotalEnergies": "TTE.PA",
-    "UniCredit": "UCG.MI",
-    "Vinci": "DG.PA",
-    "Volkswagen Vz.": "VOW3.DE",
+    'Adidas': 'ADS.DE',
+    'Adyen': 'ADYEN.AS',
+    'Ahold Delhaize': 'AD.AS',
+    'Air Liquide': 'AI.PA',
+    'Airbus': 'AIR.PA',
+    'Allianz': 'ALV.DE',
+    'Anheuser-Busch InBev': 'ABI.BR',
+    'argenx': 'ARGX.BR',
+    'ASML': 'ASML.AS',
+    'AXA': 'CS.PA',
+    'Banco Santander': 'SAN.MC',
+    'BASF': 'BAS.DE',
+    'Bayer': 'BAYN.DE',
+    'BBVA': 'BBVA.MC',
+    'BMW': 'BMW.DE',
+    'BNP Paribas': 'BNP.PA',
+    'Danone': 'BN.PA',
+    'Deutsche Bank': 'DBK.DE',
+    'Deutsche Börse': 'DB1.DE',
+    'DHL Group': 'DHL.DE',
+    'Deutsche Telekom': 'DTE.DE',
+    'Enel': 'ENEL.MI',
+    'Eni': 'ENI.MI',
+    'EssilorLuxottica': 'EL.PA',
+    'Ferrari': 'RACE.MI',
+    'Hermès': 'RMS.PA',
+    'Iberdrola': 'IBE.MC',
+    'Inditex': 'ITX.MC',
+    'Infineon': 'IFX.DE',
+    'ING': 'INGA.AS',
+    'Intesa Sanpaolo': 'ISP.MI',
+    "L'Oréal": 'OR.PA',
+    'LVMH': 'MC.PA',
+    'Mercedes-Benz': 'MBG.DE',
+    'Münchener Rück': 'MUV2.DE',
+    'Nordea': 'NDA-FI.HE',
+    'Prosus': 'PRX.AS',
+    'Rheinmetall': 'RHM.DE',
+    'Safran': 'SAF.PA',
+    'Saint-Gobain': 'SGO.PA',
+    'Sanofi': 'SAN.PA',
+    'SAP': 'SAP.DE',
+    'Schneider Electric': 'SU.PA',
+    'Siemens': 'SIE.DE',
+    'Siemens Energy': 'ENR.DE',
+    'TotalEnergies': 'TTE.PA',
+    'UniCredit': 'UCG.MI',
+    'Vinci': 'DG.PA',
+    'Volkswagen Vz.': 'VOW3.DE',
+    'Wolters Kluwer': 'WKL.AS',
 }
 
 TECDAX = {
@@ -1081,17 +1088,26 @@ st.caption(
     "Fundamentals-Endpunkt erlaubt – automatisch durch EODHD ergänzt."
 )
 
-if index_name == "EURO STOXX 50" and len(stocks) != 50:
-    st.warning(
-        f"⚠️ Das EURO-STOXX-50-Universum enthält {len(stocks)} statt 50 Aktien."
-    )
+if index_name == "EURO STOXX 50":
+    if len(stocks) != 50:
+        st.warning(
+            f"⚠️ Das EURO-STOXX-50-Universum enthält {len(stocks)} statt 50 Aktien."
+        )
+    else:
+        st.success("✅ EURO-STOXX-50-Universum vollständig: 50 Aktien.")
 
 min_coverage = st.slider(
     "Mindest-Datenabdeckung",
     min_value=0,
     max_value=100,
-    value=50,
+    value=40,
     step=10
+)
+
+st.caption(
+    "Empfehlung: 40 %. Wenn Fundamentaldaten einer Quelle vorübergehend fehlen, "
+    "können Momentum (25 %) und Risiko (20 %) zusammen bereits 45 % Abdeckung liefern. "
+    "Bei 50 % würden solche Aktien vollständig ausgeblendet."
 )
 
 if st.button(
@@ -1193,7 +1209,8 @@ if st.button(
 
     if not results:
         st.error(
-            "Keine Aktien mit ausreichender Datenabdeckung gefunden."
+            "Keine Aktien mit der gewählten Mindest-Datenabdeckung gefunden. "
+            "Bitte zunächst 40 % wählen; fehlende Fundamentaldaten werden unten separat angezeigt."
         )
     else:
         df = pd.DataFrame(results)
