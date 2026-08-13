@@ -1973,3 +1973,4 @@ st.caption(
     "Kurzfristige Momentum-Beschleunigung wird über monatlich normierte "
     "Segmente 1M, 2–3M, 4–6M und 7–12M berücksichtigt. "
     "Das Screening ist ein quantitatives Hilfsmittel und keine Anlageberatung."
+)
