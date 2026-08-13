@@ -485,7 +485,7 @@ def get_yahoo_histories_batch(symbols_tuple):
     try:
         raw = yf.download(
             tickers=symbols,
-            period="1y",
+            period="2y",
             interval="1d",
             auto_adjust=True,
             group_by="ticker",
@@ -1018,14 +1018,23 @@ def merge_fundamentals(primary, secondary):
 
 
 def get_stock_data(symbol, preloaded_hist=None):
+    """
+    Robuste Datenfunktion:
+    - technische Daten werden zuerst und unabhängig berechnet
+    - Fundamentaldaten werden anschließend nur ergänzt
+    - Fehler bei Fundamentals dürfen die technischen Daten NICHT verwerfen
+    """
+    # --------------------------------------------------------
+    # A) KURSDATEN / TECHNIK
+    # --------------------------------------------------------
     try:
         if preloaded_hist is not None and not preloaded_hist.empty:
-            hist = preloaded_hist
+            hist = preloaded_hist.copy()
             price_source = "Yahoo Finance (Batch)"
         else:
             hist, price_source = get_redundant_history(symbol)
 
-        if hist is None or hist.empty:
+        if hist is None or hist.empty or "Close" not in hist.columns:
             return None
 
         close = pd.to_numeric(
@@ -1033,16 +1042,16 @@ def get_stock_data(symbol, preloaded_hist=None):
             errors="coerce"
         ).dropna()
 
-        if len(close) < 60:
+        # Für alle technischen Kriterien benötigen wir mindestens GD200.
+        if len(close) < 200:
             return None
+
+        # Nur die jüngsten ca. 12 Handelsmonate verwenden.
+        # Ein kleiner Puffer über 252 Tage hilft bei Feiertagen.
+        close = close.tail(260)
 
         current = float(close.iloc[-1])
 
-        # --------------------------------------------------------
-        # Kurzfristige Momentum-Segmente
-        # Alle Werte werden auf eine durchschnittliche Monatsrate
-        # normiert, damit 1M, 2–3M, 4–6M und 7–12M fair vergleichbar sind.
-        # --------------------------------------------------------
         r1m = (
             segment_monthly_return(close, -22, -1)
             if len(close) >= 22 else None
@@ -1058,8 +1067,8 @@ def get_stock_data(symbol, preloaded_hist=None):
             if len(close) >= 127 else None
         )
 
-        # Für 7–12M verwenden wir bei knapp unter 252 Handelstagen
-        # den frühesten verfügbaren Kurs bis ca. 6 Monate zurück.
+        # Monate 7–12: ausschließlich der ältere Halbjahresblock,
+        # ohne Monate 1–6.
         if len(close) >= 240:
             start_7_12 = -min(len(close), 252)
             r7_12m = segment_monthly_return(
@@ -1090,43 +1099,87 @@ def get_stock_data(symbol, preloaded_hist=None):
         )
 
         p12m = (
+            (current / float(close.iloc[-252]) - 1) * 100
+            if len(close) >= 252 else
             (current / float(close.iloc[0]) - 1) * 100
             if len(close) >= 240 else None
         )
 
-        sma200 = (
-            float(close.tail(200).mean())
-            if len(close) >= 200 else None
-        )
-
+        sma200 = float(close.tail(200).mean())
         distance_200 = (
             (current / sma200 - 1) * 100
             if sma200 else None
         )
 
-        high52 = float(close.max())
-
+        high52 = float(close.tail(252).max())
         distance_high = (
             (current / high52 - 1) * 100
             if high52 else None
         )
 
-        daily_returns = close.pct_change().dropna()
+        daily_returns = close.tail(252).pct_change().dropna()
 
         volatility = (
             float(daily_returns.std())
             * math.sqrt(252)
             * 100
+            if len(daily_returns) > 1
+            else None
         )
 
-        running_max = close.cummax()
-        drawdown = (close / running_max - 1) * 100
-        max_drawdown = float(drawdown.min())
+        close_12m = close.tail(252)
+        running_max = close_12m.cummax()
+        drawdown = (close_12m / running_max - 1) * 100
+        max_drawdown = (
+            float(drawdown.min())
+            if not drawdown.empty
+            else None
+        )
 
+        data = {
+            "Kurs": current,
+            "1M Monatsrate %": r1m,
+            "2-3M Monatsrate %": r2_3m,
+            "4-6M Monatsrate %": r4_6m,
+            "7-12M Monatsrate %": r7_12m,
+            "Momentum-Beschleunigung": acceleration,
+            "Momentum-Muster": acceleration_text,
+            "6M %": p6m,
+            "12M %": p12m,
+            "200T %": distance_200,
+            "52W-Hoch %": distance_high,
+            "Volatilität %": volatility,
+            "Max Drawdown %": max_drawdown,
+
+            # Fundamentals zunächst leer; werden unten ergänzt.
+            "ROE %": None,
+            "Operative Marge %": None,
+            "Debt/Equity": None,
+            "KGV": None,
+            "Forward-KGV": None,
+            "Gewinnwachstum %": None,
+            "Umsatzwachstum %": None,
+            "Dividendenrendite %": None,
+            "KBV": None,
+            "Sektor": "",
+            "Industrie": "",
+
+            "Kursquelle": price_source,
+            "Fundamentalquelle": "keine",
+            "Sektor-Typ-Override": SECTOR_TYPE_BY_SYMBOL.get(symbol),
+            "Datenfehler": "",
+        }
+
+    except Exception as exc:
+        # Nur ein echter Fehler der Kurs-/Technikberechnung verwirft die Aktie.
+        return None
+
+    # --------------------------------------------------------
+    # B) FUNDAMENTALDATEN – OPTIONAL
+    # --------------------------------------------------------
+    try:
         yahoo_f = get_yahoo_fundamentals(symbol)
 
-        # EODHD-Fundamentals nur ergänzend aufrufen, wenn Yahoo keine
-        # oder unvollständige zentrale Fundamentaldaten geliefert hat.
         central_keys = [
             "ROE %",
             "KGV",
@@ -1134,6 +1187,7 @@ def get_stock_data(symbol, preloaded_hist=None):
             "Gewinnwachstum %",
             "Umsatzwachstum %",
         ]
+
         yahoo_has_gaps = (
             not yahoo_f
             or any(
@@ -1153,38 +1207,30 @@ def get_stock_data(symbol, preloaded_hist=None):
             eod_f
         )
 
-        return {
-            "Kurs": current,
-            "1M Monatsrate %": r1m,
-            "2-3M Monatsrate %": r2_3m,
-            "4-6M Monatsrate %": r4_6m,
-            "7-12M Monatsrate %": r7_12m,
-            "Momentum-Beschleunigung": acceleration,
-            "Momentum-Muster": acceleration_text,
-            "6M %": p6m,
-            "12M %": p12m,
-            "200T %": distance_200,
-            "52W-Hoch %": distance_high,
-            "Volatilität %": volatility,
-            "Max Drawdown %": max_drawdown,
-            "ROE %": fundamentals.get("ROE %"),
-            "Operative Marge %": fundamentals.get("Operative Marge %"),
-            "Debt/Equity": fundamentals.get("Debt/Equity"),
-            "KGV": fundamentals.get("KGV"),
-            "Forward-KGV": fundamentals.get("Forward-KGV"),
-            "Gewinnwachstum %": fundamentals.get("Gewinnwachstum %"),
-            "Umsatzwachstum %": fundamentals.get("Umsatzwachstum %"),
-            "Dividendenrendite %": fundamentals.get("Dividendenrendite %"),
-            "KBV": fundamentals.get("KBV"),
-            "Sektor": fundamentals.get("Sektor", ""),
-            "Industrie": fundamentals.get("Industrie", ""),
-            "Kursquelle": price_source,
-            "Fundamentalquelle": fundamental_source,
-            "Sektor-Typ-Override": SECTOR_TYPE_BY_SYMBOL.get(symbol),
-        }
+        for key in [
+            "ROE %",
+            "Operative Marge %",
+            "Debt/Equity",
+            "KGV",
+            "Forward-KGV",
+            "Gewinnwachstum %",
+            "Umsatzwachstum %",
+            "Dividendenrendite %",
+            "KBV",
+            "Sektor",
+            "Industrie",
+        ]:
+            if fundamentals.get(key) not in (None, ""):
+                data[key] = fundamentals.get(key)
 
-    except Exception:
-        return None
+        data["Fundamentalquelle"] = fundamental_source
+
+    except Exception as exc:
+        # Technischer Score bleibt erhalten.
+        data["Fundamentalquelle"] = "keine"
+        data["Datenfehler"] = f"Fundamentals: {type(exc).__name__}"
+
+    return data
 
 
 # ============================================================
@@ -1682,7 +1728,7 @@ if st.button(
     )
 
     st.caption(
-        f"Yahoo-Batch: {len(batch_histories)}/{total} Kursreihen direkt geladen. "
+        f"Yahoo-Batch: {len(batch_histories)}/{total} Kursreihen (2 Jahre) direkt geladen. "
         "Fehlende Titel werden anschließend einzeln über Yahoo, EODHD und Stooq versucht."
     )
 
@@ -1757,6 +1803,7 @@ if st.button(
                     "Drawdown %": data.get("Max Drawdown %"),
                     "Kursquelle": data.get("Kursquelle"),
                     "Fundamentalquelle": data.get("Fundamentalquelle"),
+                    "Datenfehler": data.get("Datenfehler"),
                 })
             else:
                 omitted.append({
@@ -1770,6 +1817,11 @@ if st.button(
                     ),
                     "Kursquelle": data.get("Kursquelle"),
                     "Fundamentalquelle": data.get("Fundamentalquelle"),
+                    "Momentum": momentum,
+                    "Risiko": risk,
+                    "Qualität": quality,
+                    "Bewertung": valuation,
+                    "Datenfehler": data.get("Datenfehler"),
                 })
         else:
             omitted.append({
@@ -1791,7 +1843,7 @@ if st.button(
     if not results:
         st.error(
             "Keine Aktien mit der gewählten Mindest-Datenabdeckung gefunden. "
-            "Bei rein technischen Daten sind maximal 51 % Abdeckung möglich. "
+            "Bei fehlenden Fundamentaldaten ergeben Momentum (32 %) und Risiko (19 %) zusammen 51 % Abdeckung. "
             "Öffne unten 'Nicht ausgewertete Aktien', um den konkreten Grund zu sehen."
         )
     else:
