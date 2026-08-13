@@ -246,6 +246,40 @@ TECDAX = {
     'Verbio': 'VBK.DE',
 }
 
+
+# ============================================================
+# FESTE SEKTOR-TYPEN
+# Fallback, falls Yahoo/EODHD keine Sektordaten liefern.
+# Besonders wichtig für Banken und Versicherungen, weil sie
+# sektorspezifisch bewertet werden.
+# ============================================================
+
+SECTOR_TYPE_BY_SYMBOL = {
+    # EURO STOXX 50 – Banken / Finanz
+    "SAN.MC": "Bank/Finanz",
+    "BBVA.MC": "Bank/Finanz",
+    "BNP.PA": "Bank/Finanz",
+    "DBK.DE": "Bank/Finanz",
+    "DB1.DE": "Bank/Finanz",
+    "INGA.AS": "Bank/Finanz",
+    "ISP.MI": "Bank/Finanz",
+    "UCG.MI": "Bank/Finanz",
+    "NDA-FI.HE": "Bank/Finanz",
+    "ADYEN.AS": "Bank/Finanz",
+
+    # EURO STOXX 50 – Versicherungen
+    "ALV.DE": "Versicherung",
+    "CS.PA": "Versicherung",
+    "MUV2.DE": "Versicherung",
+
+    # Dow Jones / Nasdaq – Finanz
+    "AXP": "Bank/Finanz",
+    "GS": "Bank/Finanz",
+    "JPM": "Bank/Finanz",
+    "V": "Bank/Finanz",
+    "PYPL": "Bank/Finanz",
+}
+
 INDEX_DATA = {
     "EURO STOXX 50": EUROSTOXX50,
     "TecDAX": TECDAX,
@@ -535,7 +569,7 @@ def get_yahoo_histories_batch(symbols_tuple):
 def get_yahoo_history(symbol):
     try:
         hist = yf.Ticker(symbol).history(
-            period="1y",
+            period="2y",
             auto_adjust=True
         )
         if hist is None or hist.empty:
@@ -553,7 +587,7 @@ def get_eodhd_history(symbol):
     try:
         eod_symbol = yahoo_to_eodhd(symbol)
         end_date = date.today()
-        start_date = end_date - timedelta(days=370)
+        start_date = end_date - timedelta(days=740)
 
         response = requests.get(
             f"https://eodhd.com/api/eod/{eod_symbol}",
@@ -603,7 +637,7 @@ def get_stooq_history(symbol):
     try:
         stooq_symbol = yahoo_to_stooq(symbol)
         end_date = date.today()
-        start_date = end_date - timedelta(days=370)
+        start_date = end_date - timedelta(days=740)
 
         response = requests.get(
             "https://stooq.com/q/d/l/",
@@ -1171,8 +1205,16 @@ def get_stock_data(symbol, preloaded_hist=None):
         }
 
     except Exception as exc:
-        # Nur ein echter Fehler der Kurs-/Technikberechnung verwirft die Aktie.
-        return None
+        # Technische Fehler sollen künftig sichtbar diagnostizierbar sein.
+        # Wir geben ein spezielles Fehlerobjekt zurück statt still None.
+        return {
+            "_TECHNIK_FEHLER": f"{type(exc).__name__}: {exc}",
+            "Kursquelle": (
+                "Yahoo Finance (Batch)"
+                if preloaded_hist is not None and not preloaded_hist.empty
+                else "unbekannt"
+            ),
+        }
 
     # --------------------------------------------------------
     # B) FUNDAMENTALDATEN – OPTIONAL
@@ -1655,6 +1697,14 @@ index_name = st.selectbox(
 
 stocks = INDEX_DATA[index_name]
 
+# Interner Konsistenzcheck
+if "SECTOR_TYPE_BY_SYMBOL" not in globals():
+    st.error(
+        "Interner Konfigurationsfehler: SECTOR_TYPE_BY_SYMBOL fehlt. "
+        "Bitte die aktuelle vollständige streamlit_app.py verwenden."
+    )
+    st.stop()
+
 if index_name == "Nasdaq-100":
     st.info(f"**{index_name}: {len(stocks)} aktuelle Wertpapiere**")
 else:
@@ -1729,7 +1779,8 @@ if st.button(
 
     st.caption(
         f"Yahoo-Batch: {len(batch_histories)}/{total} Kursreihen (2 Jahre) direkt geladen. "
-        "Fehlende Titel werden anschließend einzeln über Yahoo, EODHD und Stooq versucht."
+        "Fehlende Titel werden anschließend einzeln über Yahoo, EODHD und Stooq versucht. "
+        "Für Momentum/GD200 werden mindestens 200 Handelstage benötigt."
     )
 
     for i, (name, symbol) in enumerate(stocks.items()):
@@ -1742,7 +1793,17 @@ if st.button(
             preloaded_hist=batch_histories.get(symbol)
         )
 
-        if data is not None:
+        if data is not None and data.get("_TECHNIK_FEHLER"):
+            omitted.append({
+                "Aktie": name,
+                "Symbol": symbol,
+                "Grund": "Technischer Berechnungsfehler",
+                "Kursquelle": data.get("Kursquelle"),
+                "Fundamentalquelle": "nicht geprüft",
+                "Datenfehler": data.get("_TECHNIK_FEHLER"),
+            })
+
+        elif data is not None:
             quality = quality_score(data)
             valuation = valuation_score(data)
             momentum = momentum_score(data)
@@ -1828,8 +1889,9 @@ if st.button(
                 "Aktie": name,
                 "Symbol": symbol,
                 "Grund": (
-                    "Keine ausreichende Kursreihe. Yahoo-Batch und Einzel-Fallback "
-                    "über Yahoo/EODHD/Stooq waren ohne verwertbares Ergebnis."
+                    "Keine ausreichende Kursreihe verfügbar. "
+                    "Yahoo-Batch und die Einzel-Fallbacks lieferten keine "
+                    "für GD200/12-Monatsanalyse ausreichenden Daten."
                 ),
                 "Kursquelle": "keine",
                 "Fundamentalquelle": "keine",
@@ -2130,6 +2192,13 @@ Historie liefert. Das schont insbesondere das kostenlose EODHD-Kontingent.
 
 Die Ergebnistabelle zeigt mit **Kursquelle** und **Fundamentalquelle**,
 welche Quelle tatsächlich verwendet wurde.
+
+**Sektorerkennung**
+
+Für Banken und Versicherungen gibt es zusätzlich eine feste interne
+Fallback-Zuordnung. Dadurch werden z. B. Allianz, AXA, Münchener Rück,
+ING, Santander, BBVA, BNP Paribas, Intesa und UniCredit auch dann
+sektorspezifisch bewertet, wenn Yahoo vorübergehend keine Sektordaten liefert.
 """
     )
 
@@ -2140,4 +2209,5 @@ st.caption(
     "Segmente 1M, 2–3M, 4–6M und 7–12M berücksichtigt. "
     "Das Screening ist ein quantitatives Hilfsmittel und keine Anlageberatung."
 )
+
 
