@@ -468,6 +468,70 @@ def yahoo_to_stooq(symbol):
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
+def get_yahoo_histories_batch(symbols_tuple):
+    """
+    Lädt die Kursreihen eines kompletten Index in EINEM Yahoo-Aufruf.
+    Das reduziert Rate-Limits insbesondere beim Nasdaq-100 erheblich.
+
+    Rückgabe:
+        dict[symbol] -> DataFrame mit mindestens Close
+    """
+    symbols = list(symbols_tuple)
+    result = {}
+
+    if not symbols:
+        return result
+
+    try:
+        raw = yf.download(
+            tickers=symbols,
+            period="1y",
+            interval="1d",
+            auto_adjust=True,
+            group_by="ticker",
+            threads=True,
+            progress=False,
+        )
+
+        if raw is None or raw.empty:
+            return result
+
+        # Mehrere Ticker -> MultiIndex-Spalten
+        if isinstance(raw.columns, pd.MultiIndex):
+            level0 = set(raw.columns.get_level_values(0))
+            level1 = set(raw.columns.get_level_values(1))
+
+            for symbol in symbols:
+                try:
+                    if symbol in level0:
+                        sub = raw[symbol].copy()
+                    elif symbol in level1:
+                        sub = raw.xs(symbol, axis=1, level=1).copy()
+                    else:
+                        continue
+
+                    if "Close" not in sub.columns:
+                        continue
+
+                    sub = sub.dropna(subset=["Close"])
+                    if not sub.empty:
+                        result[symbol] = sub
+                except Exception:
+                    continue
+
+        # Ein Ticker -> normale Spalten
+        elif len(symbols) == 1 and "Close" in raw.columns:
+            sub = raw.dropna(subset=["Close"]).copy()
+            if not sub.empty:
+                result[symbols[0]] = sub
+
+    except Exception:
+        return {}
+
+    return result
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
 def get_yahoo_history(symbol):
     try:
         hist = yf.Ticker(symbol).history(
@@ -953,10 +1017,13 @@ def merge_fundamentals(primary, secondary):
     return merged, source
 
 
-@st.cache_data(ttl=3600, show_spinner=False)
-def get_stock_data(symbol):
+def get_stock_data(symbol, preloaded_hist=None):
     try:
-        hist, price_source = get_redundant_history(symbol)
+        if preloaded_hist is not None and not preloaded_hist.empty:
+            hist = preloaded_hist
+            price_source = "Yahoo Finance (Batch)"
+        else:
+            hist, price_source = get_redundant_history(symbol)
 
         if hist is None or hist.empty:
             return None
@@ -1057,7 +1124,30 @@ def get_stock_data(symbol):
         max_drawdown = float(drawdown.min())
 
         yahoo_f = get_yahoo_fundamentals(symbol)
-        eod_f = get_eodhd_fundamentals(symbol)
+
+        # EODHD-Fundamentals nur ergänzend aufrufen, wenn Yahoo keine
+        # oder unvollständige zentrale Fundamentaldaten geliefert hat.
+        central_keys = [
+            "ROE %",
+            "KGV",
+            "Forward-KGV",
+            "Gewinnwachstum %",
+            "Umsatzwachstum %",
+        ]
+        yahoo_has_gaps = (
+            not yahoo_f
+            or any(
+                yahoo_f.get(k) is None
+                for k in central_keys
+            )
+        )
+
+        eod_f = (
+            get_eodhd_fundamentals(symbol)
+            if yahoo_has_gaps
+            else {}
+        )
+
         fundamentals, fundamental_source = merge_fundamentals(
             yahoo_f,
             eod_f
@@ -1583,12 +1673,28 @@ if st.button(
     omitted = []
     total = len(stocks)
 
+    status.write(
+        f"Lade Kursdaten für **{index_name}** gesammelt über Yahoo Finance ..."
+    )
+
+    batch_histories = get_yahoo_histories_batch(
+        tuple(stocks.values())
+    )
+
+    st.caption(
+        f"Yahoo-Batch: {len(batch_histories)}/{total} Kursreihen direkt geladen. "
+        "Fehlende Titel werden anschließend einzeln über Yahoo, EODHD und Stooq versucht."
+    )
+
     for i, (name, symbol) in enumerate(stocks.items()):
         status.write(
             f"Analysiere {i + 1}/{total}: **{name}**"
         )
 
-        data = get_stock_data(symbol)
+        data = get_stock_data(
+            symbol,
+            preloaded_hist=batch_histories.get(symbol)
+        )
 
         if data is not None:
             quality = quality_score(data)
@@ -1669,7 +1775,10 @@ if st.button(
             omitted.append({
                 "Aktie": name,
                 "Symbol": symbol,
-                "Grund": "Keine ausreichende Kursreihe aus Yahoo, EODHD oder Stooq",
+                "Grund": (
+                    "Keine ausreichende Kursreihe. Yahoo-Batch und Einzel-Fallback "
+                    "über Yahoo/EODHD/Stooq waren ohne verwertbares Ergebnis."
+                ),
                 "Kursquelle": "keine",
                 "Fundamentalquelle": "keine",
             })
@@ -1682,7 +1791,8 @@ if st.button(
     if not results:
         st.error(
             "Keine Aktien mit der gewählten Mindest-Datenabdeckung gefunden. "
-            "Bitte zunächst 40 % wählen; fehlende Fundamentaldaten werden unten separat angezeigt."
+            "Bei rein technischen Daten sind maximal 51 % Abdeckung möglich. "
+            "Öffne unten 'Nicht ausgewertete Aktien', um den konkreten Grund zu sehen."
         )
     else:
         df = pd.DataFrame(results)
@@ -1948,9 +2058,13 @@ with st.expander("🗄️ Datenquellen und Redundanz"):
         """
 **Kursdaten**
 
-1. Yahoo Finance
-2. EODHD als Fallback
-3. Stooq als weiterer Fallback
+1. Yahoo Finance als **Batch-Abfrage für den gesamten gewählten Index**
+2. Yahoo-Einzelabfrage nur für im Batch fehlende Titel
+3. EODHD als weiterer Fallback
+4. Stooq als letzter Fallback
+
+Die Batch-Abfrage reduziert bei großen Universen wie dem Nasdaq-100
+die Zahl der Yahoo-Anfragen drastisch und vermindert Rate-Limits.
 
 EODHD wird für Kursdaten nur dann abgefragt, wenn Yahoo keine brauchbare
 Historie liefert. Das schont insbesondere das kostenlose EODHD-Kontingent.
@@ -1974,3 +2088,4 @@ st.caption(
     "Segmente 1M, 2–3M, 4–6M und 7–12M berücksichtigt. "
     "Das Screening ist ein quantitatives Hilfsmittel und keine Anlageberatung."
 )
+
