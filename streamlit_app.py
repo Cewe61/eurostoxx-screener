@@ -382,42 +382,67 @@ def acceleration_score_from_segments(r1, r23, r46, r712):
     Alle Segmente sind bereits auf eine durchschnittliche Monatsrate
     normiert.
 
-    Idealfall:
-        1M > 2–3M > 4–6M > 7–12M
-    und der jüngste Monat ist positiv.
+    Ziel ist, eine AKTUELL bis in die Gegenwart reichende Beschleunigung
+    zu erkennen. Deshalb wird vom jüngsten Segment rückwärts geprüft,
+    wie lange die steigende Momentum-Kette anhält.
 
-    Bewertung über vier Bedingungen:
-    0 Abweichungen -> 22,0 Punkte
-    1 Abweichung   -> 16,5 Punkte (75 %)
-    2 Abweichungen -> 11,0 Punkte (50 %)
-    3 Abweichungen ->  5,5 Punkte (25 %)
-    4 Abweichungen ->  0,0 Punkte
+    Mindestbedingung:
+        Die drei jüngsten Momentum-Segmente müssen positiv sein:
+        1M > 0, 2–3M > 0 und 4–6M > 0.
+        Sonst gibt es 0 Punkte.
+
+    Bewertung:
+        100 % = 22,0 Punkte:
+            alle vier Segmente positiv UND durchgehend steigend
+            1M > 2–3M > 4–6M > 7–12M > 0
+
+         75 % = 16,5 Punkte:
+            die drei jüngsten Segmente sind positiv und die komplette
+            Steigerungskette reicht bis 7–12M zurück, aber 7–12M ist
+            nicht positiv
+            1M > 2–3M > 4–6M > 7–12M und 7–12M <= 0
+
+         50 % = 11,0 Punkte:
+            die beiden jüngsten Steigerungsschritte sind vorhanden
+            1M > 2–3M > 4–6M, die Kette reicht aber nicht weiter zurück
+
+         25 % = 5,5 Punkte:
+            nur der jüngste Steigerungsschritt ist vorhanden
+            1M > 2–3M, aber 2–3M steigt nicht gegenüber 4–6M
+
+          0 % = 0,0 Punkte:
+            Mindestbedingung nicht erfüllt oder der jüngste Schritt
+            zeigt keine Beschleunigung.
     """
     values = [r1, r23, r46, r712]
 
-    # Für die gewünschte 4-Stufen-Bewertung müssen alle vier Segmente
-    # verfügbar sein.
     if any(v is None for v in values):
         return None
 
-    conditions = [
-        r1 > r23,
-        r23 > r46,
-        r46 > r712,
-        r1 > 0,
-    ]
+    # Ohne positives Momentum in den drei jüngsten Zeitfenstern
+    # werden keine Beschleunigungspunkte vergeben.
+    if not (r1 > 0 and r23 > 0 and r46 > 0):
+        return 0.0
 
-    deviations = sum(1 for ok in conditions if not ok)
+    # Der jüngste Schritt muss sich gegenüber 2–3M verbessern.
+    if not (r1 > r23):
+        return 0.0
 
-    factor_by_deviations = {
-        0: 1.00,
-        1: 0.75,
-        2: 0.50,
-        3: 0.25,
-        4: 0.00,
-    }
+    # Nur der jüngste Schritt steigt.
+    if not (r23 > r46):
+        return 22.0 * 0.25
 
-    return 22.0 * factor_by_deviations[deviations]
+    # Die beiden jüngsten Steigerungsschritte sind vorhanden.
+    if not (r46 > r712):
+        return 22.0 * 0.50
+
+    # Durchgehende Beschleunigung über alle vier Segmente.
+    # Volle Punktzahl nur, wenn auch das älteste Segment positiv ist.
+    if r712 > 0:
+        return 22.0
+
+    # Die drei jüngsten Segmente sind positiv; das älteste noch nicht.
+    return 22.0 * 0.75
 
 
 def acceleration_label(r1, r23, r46, r712):
@@ -426,23 +451,22 @@ def acceleration_label(r1, r23, r46, r712):
     if any(v is None for v in values):
         return "zu wenig Daten"
 
-    conditions = [
-        r1 > r23,
-        r23 > r46,
-        r46 > r712,
-        r1 > 0,
-    ]
-    deviations = sum(1 for ok in conditions if not ok)
+    if not (r1 > 0 and r23 > 0 and r46 > 0):
+        return "⛔ letzte 3 nicht positiv"
 
-    if deviations == 0:
-        return "🚀 ideal beschleunigt"
-    if deviations == 1:
-        return "↗ fast ideal"
-    if deviations == 2:
-        return "↗ teilweise beschleunigt"
-    if deviations == 3:
-        return "↘ überwiegend nicht beschleunigt"
-    return "⛔ keine Beschleunigung"
+    if not (r1 > r23):
+        return "⛔ aktuell keine Beschleunigung"
+
+    if not (r23 > r46):
+        return "↗ jüngster Schritt steigt"
+
+    if not (r46 > r712):
+        return "↗ letzte 2 Schritte steigen"
+
+    if r712 > 0:
+        return "🚀 4 positive Stufen steigen"
+
+    return "↗ 3 jüngste positiv, durchgehend steigend"
 
 
 # ============================================================
@@ -2085,30 +2109,25 @@ Es werden vier vollständig getrennte Zeitabschnitte betrachtet:
 Jedes Segment wird auf eine **durchschnittliche Monatsrate** normiert.
 Dadurch sind die unterschiedlich langen Zeitfenster direkt vergleichbar.
 
-Die ideale Beschleunigungsstruktur lautet:
+Gesucht wird eine **aktuell bis in die Gegenwart reichende Beschleunigung**.
+Dafür wird vom jüngsten Zeitraum rückwärts geprüft, wie lange die
+Steigerungskette anhält.
 
-**1M > Ø Monate 2–3 > Ø Monate 4–6 > Ø Monate 7–12**
+**Grundvoraussetzung:** Die drei jüngsten Momentumwerte müssen positiv sein:
 
-Beispiel:
+**1M > 0, Ø Monate 2–3 > 0 und Ø Monate 4–6 > 0.**
 
-- Monate 7–12: **+1 % pro Monat**
-- Monate 4–6: **+2 % pro Monat**
-- Monate 2–3: **+3 % pro Monat**
-- letzter Monat: **+4 %**
-
-→ **volle 22 Punkte**
+Ist diese Voraussetzung nicht erfüllt, gibt es **0 Beschleunigungspunkte**.
 
 Bewertung:
 
-- **0 Abweichungen:** 22,0 Punkte = 100 %
-- **1 Abweichung:** 16,5 Punkte = 75 %
-- **2 Abweichungen:** 11,0 Punkte = 50 %
-- **3 Abweichungen:** 5,5 Punkte = 25 %
-- **4 Abweichungen:** 0 Punkte
+- **100 % = 22,0 Punkte:** alle vier Segmente sind positiv und steigen durchgehend: 1M > 2–3M > 4–6M > 7–12M > 0
+- **75 % = 16,5 Punkte:** vollständige Steigerungskette bis 7–12M, aber das älteste Segment ist noch nicht positiv
+- **50 % = 11,0 Punkte:** die beiden jüngsten Steigerungsschritte sind vorhanden: 1M > 2–3M > 4–6M
+- **25 % = 5,5 Punkte:** nur der jüngste Schritt steigt: 1M > 2–3M
+- **0 %:** die drei jüngsten Werte sind nicht alle positiv oder der jüngste Schritt steigt nicht
 
-Als vierte Bedingung wird zusätzlich verlangt, dass der jüngste Monat
-positiv ist. So bekommt eine bloße relative Verbesserung innerhalb eines
-weiterhin fallenden Trends nicht automatisch die volle Punktzahl.
+Damit werden insbesondere Aktien bevorzugt, deren Momentum **aktuell Fahrt aufnimmt**.
 
 ### 2. GD200-Trend – maximal 13 Punkte
 
@@ -2209,5 +2228,3 @@ st.caption(
     "Segmente 1M, 2–3M, 4–6M und 7–12M berücksichtigt. "
     "Das Screening ist ein quantitatives Hilfsmittel und keine Anlageberatung."
 )
-
-
